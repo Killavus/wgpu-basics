@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
-
-use na::geometry as na_g;
+use na::indexing;
 use nalgebra as na;
 
-use winit::{event::*, event_loop::EventLoop, window::Window, window::WindowBuilder};
+use winit::{
+    event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window, window::WindowBuilder,
+};
 
 use std::{borrow::Cow, path::Path};
 
@@ -42,6 +43,179 @@ pub const OPENGL_TO_WGPU_MATRIX: na::Matrix4<f32> = na::Matrix4::new(
 struct Model {
     vertices: Vec<na::Vector3<f32>>,
     indices: Vec<u32>,
+}
+
+struct Camera {
+    position: na::Point3<f32>,
+    pitch: f32,
+    yaw: f32,
+}
+
+struct Plane {
+    normal: na::Vector3<f32>,
+}
+
+struct Object {
+    model: Model,
+    model_mat: na::Matrix4<f32>,
+}
+
+struct GpuObject {
+    vertex_buf: wgpu::Buffer,
+    index_buf: wgpu::Buffer,
+    model_mat_buf: wgpu::Buffer,
+    num_indices: u64,
+    bind_group: Option<wgpu::BindGroup>,
+}
+
+impl GpuObject {
+    fn new(object: &Object, device: &wgpu::Device, normals: Vec<na::Vector3<f32>>) -> Result<Self> {
+        use wgpu::util::DeviceExt;
+        let Object { model, model_mat } = object;
+
+        let vertex_buf_contents = model
+            .vertices
+            .iter()
+            .copied()
+            .zip(normals.iter().copied())
+            .flat_map(|(v, n)| [v, n])
+            .collect::<Vec<_>>();
+
+        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&vertex_buf_contents),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&model.indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&model_mat)?;
+        let model_mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: buf.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        Ok(Self {
+            vertex_buf,
+            index_buf,
+            model_mat_buf,
+            num_indices: model.indices.len() as u64,
+            bind_group: None,
+        })
+    }
+
+    fn init_bind_group(
+        &mut self,
+        device: &wgpu::Device,
+        camera_buf: &wgpu::Buffer,
+        layout: &wgpu::BindGroupLayout,
+    ) {
+        self.bind_group.get_or_insert_with(|| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: camera_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.model_mat_buf.as_entire_binding(),
+                    },
+                ],
+            })
+        });
+    }
+
+    fn bind_group(&self) -> &wgpu::BindGroup {
+        self.bind_group.as_ref().unwrap()
+    }
+}
+
+impl Object {
+    fn new(model: Model, model_mat: na::Matrix4<f32>) -> Self {
+        Self { model, model_mat }
+    }
+
+    fn as_gpu(&self, device: &wgpu::Device, normals: Vec<na::Vector3<f32>>) -> Result<GpuObject> {
+        GpuObject::new(self, device, normals)
+    }
+}
+
+impl Plane {
+    fn new(normal: na::Vector3<f32>) -> Self {
+        Self { normal }
+    }
+
+    fn model(&self) -> Model {
+        let mut model = Model {
+            vertices: vec![],
+            indices: vec![],
+        };
+
+        let z = self.normal.cross(&na::Vector3::y()).normalize();
+        let x = self.normal.cross(&z).normalize();
+
+        let tl = -x - z;
+        let tr = x - z;
+        let bl = -x + z;
+        let br = x + z;
+
+        model.vertices.push(tl);
+        model.vertices.push(tr);
+        model.vertices.push(bl);
+        model.vertices.push(br);
+
+        model.indices.push(0);
+        model.indices.push(1);
+        model.indices.push(2);
+        model.indices.push(1);
+        model.indices.push(3);
+        model.indices.push(2);
+
+        model
+    }
+
+    fn normals(&self) -> Vec<na::Vector3<f32>> {
+        vec![self.normal; 4]
+    }
+}
+
+impl Camera {
+    fn new(position: na::Point3<f32>, pitch: f32, yaw: f32) -> Self {
+        Self {
+            position,
+            pitch,
+            yaw,
+        }
+    }
+
+    fn move_x(&mut self, d: f32) {
+        self.position.x += d;
+    }
+
+    fn move_y(&mut self, d: f32) {
+        self.position.y += d;
+    }
+
+    fn move_z(&mut self, d: f32) {
+        self.position.z += d;
+    }
+
+    fn look_at_matrix(&self) -> na::Matrix4<f32> {
+        na::Matrix4::look_at_rh(
+            &self.position,
+            &na::Point3::new(0.0, 0.0, 0.0),
+            &na::Vector3::y(),
+        )
+    }
 }
 
 fn read_obj(path: impl AsRef<Path>) -> Result<Model> {
@@ -150,55 +324,51 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/phong.wgsl"))),
     });
 
-    let model = read_obj("./models/teapot.obj")?;
+    let mut objects = vec![];
+    {
+        let mut model_mat = OPENGL_TO_WGPU_MATRIX;
+        model_mat *= na::Matrix4::new_translation(&na::Vector3::new(0.0, -1.0, 0.0));
+        model_mat *= na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians());
+        model_mat *= na::Matrix4::new_scaling(100.0);
 
-    let normals = calculate_normals(&model);
-    let vertex_buf = model
-        .vertices
-        .iter()
-        .copied()
-        .zip(normals.iter().copied())
-        .flat_map(|(v, n)| [v, n])
-        .collect::<Vec<_>>();
+        let plane = Plane::new(na::Vector3::z());
+        let normals = plane.normals();
+
+        let plane_obj = Object::new(plane.model(), model_mat);
+        let plane_gpu = plane_obj.as_gpu(&device, normals)?;
+        objects.push(plane_gpu);
+    }
+
+    {
+        let model = read_obj("./models/teapot.obj")?;
+        let normals = calculate_normals(&model);
+        let model_mat = OPENGL_TO_WGPU_MATRIX
+            * na::Matrix4::new_translation(&na::Vector3::new(0.0, -1.0, 0.0))
+            * na::Matrix4::new_scaling(1.0);
+
+        let teapot_obj = Object::new(model, model_mat);
+        let teapot_gpu = teapot_obj.as_gpu(&device, normals)?;
+        objects.push(teapot_gpu);
+    }
 
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
 
     use wgpu::util::DeviceExt;
 
-    let vertices_buf: wgpu::Buffer;
-    {
-        vertices_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&vertex_buf),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-    }
-
-    let indices_buf: wgpu::Buffer;
-    {
-        indices_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&model.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-    }
-
     // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
-    let projection = na::Matrix4::new_perspective(aspect_ratio, 45.0f32.to_radians(), 0.1, 100.0);
+    let projection = na::Matrix4::new_perspective(aspect_ratio, 45.0f32.to_radians(), 0.1, 1000.0);
 
-    let camera = na::Matrix4::look_at_lh(
-        &na::Point3::new(0.0, 0.0, 0.0),
-        &na::Point3::new(0.0, 0.0, 1.0),
-        &na::Vector3::new(0.0, 1.0, 0.0),
+    let mut camera = Camera::new(
+        na::Point3::new(0.0, 0.0, -10.0),
+        0.0f32.to_radians(),
+        90.0f32.to_radians(),
     );
-
-    let proj_cam = OPENGL_TO_WGPU_MATRIX * projection * camera;
 
     let camera_buf: wgpu::Buffer;
     {
         let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&proj_cam)?;
+        buf.write(&(OPENGL_TO_WGPU_MATRIX * projection * camera.look_at_matrix()))?;
         camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: buf.into_inner().as_slice(),
@@ -206,22 +376,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         });
     }
 
-    let model_pos_buf: wgpu::Buffer;
-    {
-        let mut model_mat = na::Matrix4::<f32>::identity();
-        model_mat *= na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -5.0));
-        model_mat *= na::Matrix4::new_scaling(0.33);
-
-        let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&model_mat)?;
-        model_pos_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: buf.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-    }
-
-    let cam_pos_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    let obj_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -247,24 +402,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         ],
     });
 
-    let cam_pos_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &cam_pos_bgl,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: model_pos_buf.as_entire_binding(),
-            },
-        ],
-    });
-
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&cam_pos_bgl],
+        bind_group_layouts: &[&obj_bgl],
         push_constant_ranges: &[],
     });
 
@@ -339,6 +479,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     });
 
     let window = &window;
+    let camera = &mut camera;
     event_loop
         .run(move |event, target| {
             // Have the closure take ownership of the resources.
@@ -346,6 +487,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             // the resources are properly cleaned up.
             // let _ = (&instance, &adapter, &shader, &pipeline_layout);
 
+            use winit::keyboard::KeyCode;
             if let Event::WindowEvent {
                 window_id: _,
                 event,
@@ -374,51 +516,97 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         // On macos the window needs to be redrawn manually after resizing
                         window.request_redraw();
                     }
+                    WindowEvent::CloseRequested => {
+                        target.exit();
+                    }
                     WindowEvent::RedrawRequested => {
                         let frame = surface.get_current_texture().unwrap();
                         let view = frame
                             .texture
                             .create_view(&wgpu::TextureViewDescriptor::default());
-                        let mut encoder = device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
                         {
-                            let depth_view =
-                                depth_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                            let mut rpass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: None,
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &depth_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Clear(1.0),
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                            stencil_ops: None,
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-                            rpass.set_pipeline(&render_pipeline);
-                            rpass.set_vertex_buffer(0, vertices_buf.slice(..));
-                            rpass
-                                .set_index_buffer(indices_buf.slice(..), wgpu::IndexFormat::Uint32);
-                            rpass.set_bind_group(0, &cam_pos_bg, &[]);
-                            rpass.draw_indexed(0..model.indices.len() as u32, 0, 0..1);
+                            let mut buf = encase::UniformBuffer::new(vec![]);
+                            buf.write(
+                                &(OPENGL_TO_WGPU_MATRIX * projection * camera.look_at_matrix()),
+                            )
+                            .unwrap();
+                            queue.write_buffer(&camera_buf, 0, buf.into_inner().as_slice());
                         }
-                        queue.submit(Some(encoder.finish()));
+
+                        for object in objects.iter_mut() {
+                            object.init_bind_group(&device, &camera_buf, &obj_bgl);
+
+                            let mut encoder = device
+                                .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+                            {
+                                let obj_bg = object.bind_group();
+                                let depth_view =
+                                    depth_tex.create_view(&wgpu::TextureViewDescriptor::default());
+                                let mut rpass =
+                                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                        label: None,
+                                        color_attachments: &[Some(
+                                            wgpu::RenderPassColorAttachment {
+                                                view: &view,
+                                                resolve_target: None,
+                                                ops: wgpu::Operations {
+                                                    load: wgpu::LoadOp::Load,
+                                                    store: wgpu::StoreOp::Store,
+                                                },
+                                            },
+                                        )],
+                                        depth_stencil_attachment: Some(
+                                            wgpu::RenderPassDepthStencilAttachment {
+                                                view: &depth_view,
+                                                depth_ops: Some(wgpu::Operations {
+                                                    load: wgpu::LoadOp::Clear(1.0),
+                                                    store: wgpu::StoreOp::Store,
+                                                }),
+                                                stencil_ops: None,
+                                            },
+                                        ),
+                                        timestamp_writes: None,
+                                        occlusion_query_set: None,
+                                    });
+                                rpass.set_pipeline(&render_pipeline);
+                                rpass.set_vertex_buffer(0, object.vertex_buf.slice(..));
+                                rpass.set_index_buffer(
+                                    object.index_buf.slice(..),
+                                    wgpu::IndexFormat::Uint32,
+                                );
+                                rpass.set_bind_group(0, obj_bg, &[]);
+                                rpass.draw_indexed(0..object.num_indices as u32, 0, 0..1);
+                            }
+                            queue.submit(Some(encoder.finish()));
+                        }
+
                         frame.present()
                     }
-                    WindowEvent::CloseRequested => target.exit(),
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        if event.state.is_pressed() {
+                            match event.physical_key {
+                                PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                                    camera.move_x(-0.01);
+                                }
+                                PhysicalKey::Code(KeyCode::ArrowRight) => {
+                                    camera.move_x(0.01);
+                                }
+                                PhysicalKey::Code(KeyCode::ArrowUp) => {
+                                    camera.move_y(0.01);
+                                }
+                                PhysicalKey::Code(KeyCode::ArrowDown) => {
+                                    camera.move_y(-0.01);
+                                }
+                                PhysicalKey::Code(KeyCode::KeyW) => {
+                                    camera.move_z(-0.01);
+                                }
+                                PhysicalKey::Code(KeyCode::KeyS) => camera.move_z(0.01),
+                                _ => {}
+                            }
+                            window.request_redraw();
+                        }
+                    }
                     _ => {}
                 };
             }
