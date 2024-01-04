@@ -24,7 +24,7 @@ fn vs_main(@location(0) model_v: vec3<f32>, @location(1) normal_v: vec3<f32>) ->
 
     var out: VertexOutput;
     out.position = camera_v;
-    out.normal = inv_model_t * vec4<f32>(normal_v, 0.0);
+    out.normal = normalize(inv_model_t * vec4<f32>(normal_v, 0.0));
     out.w_pos = world_v;
 
     return out;
@@ -32,14 +32,24 @@ fn vs_main(@location(0) model_v: vec3<f32>, @location(1) normal_v: vec3<f32>) ->
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var color = vec4<f32>(albedo, 1.0);
-
-    var lightPos = light[3];
-    var lightDir = normalize(lightPos - in.w_pos);
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
-    var lightIntensity = 1.0;
-    var lightDistance = length(lightPos - in.w_pos);
-    var diffuse = max(dot(in.normal, lightDir), 0.0);
 
-    return 0.1 * vec4(albedo, 1.0) + 0.9 * diffuse * lightIntensity * vec4<f32>(lightColor, 1.0);
+    var ambientStrength = 0.1;
+    var ambient = ambientStrength * lightColor;
+
+    var lightPos = vec4(light[3].xyz, 0.0);
+
+    var diffuseStrength = 0.7;
+    var lightDir = normalize(lightPos - in.w_pos);
+    var diffuseCoeff = max(dot(in.normal, lightDir), 0.0);
+    var diffuse = diffuseStrength * diffuseCoeff * lightColor;
+
+    var specularStrength = 0.2;
+    var viewPos = vec4(inv_camera[3].xyz, 0.0);
+    var viewDir = normalize(viewPos - in.w_pos);
+    var reflectDir = reflect(-lightDir, in.normal);
+    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 256.0);
+    var specular = specularStrength * specularCoeff * lightColor;
+
+    return vec4(ambient + diffuse + specular, 1.0) * vec4(albedo, 1.0);
 }
