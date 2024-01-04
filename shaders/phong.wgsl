@@ -36,11 +36,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lightPos = inv_camera[3];
     var lightDir = normalize(lightPos - in.w_pos);
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
-    var lightIntensity = 5.0;
+    var lightIntensity = 1.0;
     var lightDistance = length(lightPos - in.w_pos);
-    var attenuation = 1.0 / (lightDistance * lightDistance);
     var diffuse = max(dot(in.normal, lightDir), 0.0);
 
 
-    return 0.1 * vec4(albedo, 1.0) + 0.9 * diffuse * lightIntensity * attenuation * vec4<f32>(lightColor, 1.0);
+    return 0.1 * vec4(albedo, 1.0) + 0.9 * diffuse * lightIntensity * vec4<f32>(lightColor, 1.0);
 }

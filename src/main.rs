@@ -440,8 +440,11 @@ fn calculate_normals(model: &Model) -> Vec<na::Vector3<f32>> {
         let normal = e1.cross(&e2).normalize();
 
         normals[i0] += normal;
+        normals[i0] = normals[i0].normalize();
         normals[i1] += normal;
+        normals[i1] = normals[i1].normalize();
         normals[i2] += normal;
+        normals[i2] = normals[i2].normalize();
     }
 
     normals
