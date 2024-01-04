@@ -5,7 +5,7 @@ use winit::{
     event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window, window::WindowBuilder,
 };
 
-use std::{borrow::Cow, path::Path};
+use std::{borrow::Cow, path::Path, time::Instant};
 
 // OpenGL Normalized Coordinate System (right-handed):
 // x: [-1.0, 1.0]
@@ -760,6 +760,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let window = &window;
     let camera = &mut camera;
+
     event_loop
         .run(move |event, target| {
             // Have the closure take ownership of the resources.
