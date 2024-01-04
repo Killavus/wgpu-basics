@@ -27,6 +27,9 @@ pub const OPENGL_TO_WGPU_MATRIX: na::Matrix4<f32> = na::Matrix4::new(
     0.0, 0.0, 0.0, 1.0,
 );
 
+const MOVE_DELTA: f32 = 0.1;
+const TILT_DELTA: f32 = 1.0;
+
 // Scale matrix:
 // [sx 0 0 0]
 // [0 sy 0 0]
@@ -47,6 +50,7 @@ struct Model {
 
 struct Camera {
     position: na::Point3<f32>,
+    delta: na::Vector3<f32>,
     pitch: f32,
     yaw: f32,
 }
@@ -66,6 +70,100 @@ struct GpuObject {
     model_mat_buf: wgpu::Buffer,
     num_indices: u64,
     bind_group: Option<wgpu::BindGroup>,
+}
+
+struct Cube {
+    size: f32,
+}
+
+impl Cube {
+    fn new(size: f32) -> Self {
+        Self { size }
+    }
+
+    fn model(&self) -> Model {
+        use na::Vector3 as Vec3;
+
+        let mut model = Model {
+            vertices: vec![],
+            indices: vec![],
+        };
+
+        let Model {
+            ref mut vertices,
+            ref mut indices,
+        } = model;
+
+        let half_size = self.size / 2.0;
+        vertices.push(Vec3::new(-half_size, half_size, -half_size)); // front-tl
+        vertices.push(Vec3::new(half_size, half_size, -half_size)); // front-tr
+        vertices.push(Vec3::new(-half_size, -half_size, -half_size)); // front-bl
+        vertices.push(Vec3::new(half_size, -half_size, -half_size)); // front-br
+        vertices.push(Vec3::new(-half_size, half_size, half_size)); // back-tl
+        vertices.push(Vec3::new(half_size, half_size, half_size)); // back-tr
+        vertices.push(Vec3::new(-half_size, -half_size, half_size)); // back-bl
+        vertices.push(Vec3::new(half_size, -half_size, half_size)); // back-br
+
+        indices.push(0);
+        indices.push(2);
+        indices.push(1);
+
+        indices.push(1);
+        indices.push(2);
+        indices.push(3);
+
+        indices.push(4);
+        indices.push(6);
+        indices.push(5);
+
+        indices.push(5);
+        indices.push(6);
+        indices.push(7);
+
+        indices.push(0);
+        indices.push(2);
+        indices.push(4);
+
+        indices.push(4);
+        indices.push(6);
+        indices.push(2);
+
+        indices.push(1);
+        indices.push(3);
+        indices.push(5);
+
+        indices.push(5);
+        indices.push(7);
+        indices.push(3);
+
+        indices.push(0);
+        indices.push(4);
+        indices.push(1);
+
+        indices.push(1);
+        indices.push(5);
+        indices.push(4);
+
+        indices.push(2);
+        indices.push(6);
+        indices.push(3);
+
+        indices.push(3);
+        indices.push(7);
+        indices.push(6);
+
+        model
+    }
+
+    fn normals(&self) -> Vec<na::Vector3<f32>> {
+        let center = na::Vector3::zeros();
+        self.model()
+            .vertices
+            .iter()
+            .copied()
+            .map(|v| (v - center).normalize())
+            .collect()
+    }
 }
 
 impl GpuObject {
@@ -192,29 +290,40 @@ impl Camera {
     fn new(position: na::Point3<f32>, pitch: f32, yaw: f32) -> Self {
         Self {
             position,
+            delta: na::Vector3::zeros(),
             pitch,
             yaw,
         }
     }
 
     fn move_x(&mut self, d: f32) {
-        self.position.x += d;
+        self.delta.x += d;
     }
 
     fn move_y(&mut self, d: f32) {
-        self.position.y += d;
+        self.delta.y += d;
     }
 
     fn move_z(&mut self, d: f32) {
-        self.position.z += d;
+        self.delta.z += d;
+    }
+
+    fn tilt_horizontally(&mut self, d: f32) {
+        self.yaw += d;
+    }
+
+    fn tilt_vertically(&mut self, d: f32) {
+        self.pitch += d;
     }
 
     fn look_at_matrix(&self) -> na::Matrix4<f32> {
-        na::Matrix4::look_at_rh(
-            &self.position,
-            &na::Point3::new(0.0, 0.0, 0.0),
-            &na::Vector3::y(),
-        )
+        let target = na::Point3::new(
+            self.pitch.cos() * self.yaw.cos(),
+            self.pitch.sin(),
+            self.pitch.cos() * self.yaw.sin(),
+        );
+
+        na::Matrix4::look_at_rh(&(self.position + self.delta), &target, &na::Vector3::y())
     }
 }
 
@@ -327,7 +436,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut objects = vec![];
     {
         let mut model_mat = OPENGL_TO_WGPU_MATRIX;
-        model_mat *= na::Matrix4::new_translation(&na::Vector3::new(0.0, -1.0, 0.0));
+        model_mat *= na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0));
         model_mat *= na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians());
         model_mat *= na::Matrix4::new_scaling(100.0);
 
@@ -340,13 +449,28 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     }
 
     {
-        let model = read_obj("./models/teapot.obj")?;
-        let normals = calculate_normals(&model);
-        let model_mat = OPENGL_TO_WGPU_MATRIX
-            * na::Matrix4::new_translation(&na::Vector3::new(0.0, -1.0, 0.0))
-            * na::Matrix4::new_scaling(1.0);
+        let mut model_mat = OPENGL_TO_WGPU_MATRIX;
+        model_mat *= na::Matrix4::new_translation(&na::Vector3::new(6.0, 2.001, 0.0));
+        model_mat *= na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians());
+        model_mat *= na::Matrix4::new_scaling(1.0);
 
-        let teapot_obj = Object::new(model, model_mat);
+        let cube = Cube::new(4.0);
+        let normals = cube.normals();
+
+        let cube_obj = Object::new(cube.model(), model_mat);
+        let cube_gpu = cube_obj.as_gpu(&device, normals)?;
+        objects.push(cube_gpu);
+    }
+
+    {
+        let teapot = read_obj("./models/teapot.obj")?;
+        let normals = calculate_normals(&teapot);
+        let model_mat = OPENGL_TO_WGPU_MATRIX
+            * na::Matrix4::new_translation(&na::Vector3::new(-5.0, 0.0, 0.0))
+            * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+            * na::Matrix4::new_scaling(3.0);
+
+        let teapot_obj = Object::new(teapot, model_mat);
         let teapot_gpu = teapot_obj.as_gpu(&device, normals)?;
         objects.push(teapot_gpu);
     }
@@ -357,12 +481,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     use wgpu::util::DeviceExt;
 
     // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
-    let projection = na::Matrix4::new_perspective(aspect_ratio, 45.0f32.to_radians(), 0.1, 1000.0);
+    let projection =
+        na::Matrix4::new_perspective(aspect_ratio, 75.0f32.to_radians(), 0.1, 100000.0);
 
-    let mut camera = Camera::new(
-        na::Point3::new(0.0, 0.0, -10.0),
+    let mut camera: Camera = Camera::new(
+        na::Point3::new(0.0, 0.1, -10.0),
         0.0f32.to_radians(),
-        90.0f32.to_radians(),
+        0.0f32.to_radians(),
     );
 
     let camera_buf: wgpu::Buffer;
@@ -534,7 +659,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             queue.write_buffer(&camera_buf, 0, buf.into_inner().as_slice());
                         }
 
-                        for object in objects.iter_mut() {
+                        for (idx, object) in objects.iter_mut().enumerate() {
                             object.init_bind_group(&device, &camera_buf, &obj_bgl);
 
                             let mut encoder = device
@@ -560,7 +685,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                             wgpu::RenderPassDepthStencilAttachment {
                                                 view: &depth_view,
                                                 depth_ops: Some(wgpu::Operations {
-                                                    load: wgpu::LoadOp::Clear(1.0),
+                                                    load: if idx == 0 {
+                                                        wgpu::LoadOp::Clear(1.0)
+                                                    } else {
+                                                        wgpu::LoadOp::Load
+                                                    },
                                                     store: wgpu::StoreOp::Store,
                                                 }),
                                                 stencil_ops: None,
@@ -586,22 +715,34 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     WindowEvent::KeyboardInput { event, .. } => {
                         if event.state.is_pressed() {
                             match event.physical_key {
-                                PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                                    camera.move_x(-0.01);
+                                PhysicalKey::Code(KeyCode::KeyA) => {
+                                    camera.move_x(-MOVE_DELTA);
                                 }
-                                PhysicalKey::Code(KeyCode::ArrowRight) => {
-                                    camera.move_x(0.01);
+                                PhysicalKey::Code(KeyCode::KeyD) => {
+                                    camera.move_x(MOVE_DELTA);
                                 }
-                                PhysicalKey::Code(KeyCode::ArrowUp) => {
-                                    camera.move_y(0.01);
+                                PhysicalKey::Code(KeyCode::KeyQ) => {
+                                    camera.move_y(MOVE_DELTA);
                                 }
-                                PhysicalKey::Code(KeyCode::ArrowDown) => {
-                                    camera.move_y(-0.01);
+                                PhysicalKey::Code(KeyCode::KeyZ) => {
+                                    camera.move_y(-MOVE_DELTA);
                                 }
                                 PhysicalKey::Code(KeyCode::KeyW) => {
-                                    camera.move_z(-0.01);
+                                    camera.move_z(MOVE_DELTA);
                                 }
-                                PhysicalKey::Code(KeyCode::KeyS) => camera.move_z(0.01),
+                                PhysicalKey::Code(KeyCode::KeyS) => camera.move_z(-MOVE_DELTA),
+                                PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                                    camera.tilt_horizontally(-TILT_DELTA.to_radians());
+                                }
+                                PhysicalKey::Code(KeyCode::ArrowRight) => {
+                                    camera.tilt_horizontally(TILT_DELTA.to_radians());
+                                }
+                                PhysicalKey::Code(KeyCode::ArrowUp) => {
+                                    camera.tilt_vertically(TILT_DELTA.to_radians());
+                                }
+                                PhysicalKey::Code(KeyCode::ArrowDown) => {
+                                    camera.tilt_vertically(-TILT_DELTA.to_radians());
+                                }
                                 _ => {}
                             }
                             window.request_redraw();

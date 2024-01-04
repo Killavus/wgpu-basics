@@ -5,7 +5,7 @@
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) @interpolate(flat, center) normal: vec4<f32>,
+    @location(0) normal: vec4<f32>,
 };
 
 
@@ -24,5 +24,6 @@ fn vs_main(@location(0) model_v: vec3<f32>, @location(1) normal_v: vec3<f32>, @b
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = (in.normal + 1.0) * 0.5;
+
     return color;
 }
