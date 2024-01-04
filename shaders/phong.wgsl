@@ -7,6 +7,7 @@
 @group(0) @binding(4) var<uniform> model: mat4x4<f32>;
 @group(0) @binding(5) var<uniform> inv_model_t: mat4x4<f32>;
 @group(0) @binding(6) var<uniform> albedo: vec3<f32>;
+@group(0) @binding(7) var<uniform> light: mat4x4<f32>;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -33,12 +34,12 @@ fn vs_main(@location(0) model_v: vec3<f32>, @location(1) normal_v: vec3<f32>) ->
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = vec4<f32>(albedo, 1.0);
 
-    var lightPos = inv_camera[3];
+    var lightPos = light[3];
     var lightDir = normalize(lightPos - in.w_pos);
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
     var lightIntensity = 1.0;
     var lightDistance = length(lightPos - in.w_pos);
     var diffuse = max(dot(in.normal, lightDir), 0.0);
 
-    return 0.1 * vec4(albedo, 1.0) + 0.4 * diffuse * lightIntensity * vec4<f32>(lightColor, 1.0);
+    return 0.1 * vec4(albedo, 1.0) + 0.9 * diffuse * lightIntensity * vec4<f32>(lightColor, 1.0);
 }

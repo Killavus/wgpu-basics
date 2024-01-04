@@ -168,6 +168,11 @@ impl Cube {
     }
 }
 
+struct Light {
+    position: na::Point3<f32>,
+    color: na::Vector3<f32>,
+}
+
 impl GpuObject {
     fn new(object: &Object, device: &wgpu::Device, normals: Vec<na::Vector3<f32>>) -> Result<Self> {
         use wgpu::util::DeviceExt;
@@ -233,6 +238,12 @@ impl GpuObject {
         })
     }
 
+    fn update_model_mat(&self, queue: &wgpu::Queue, model_mat: &na::Matrix4<f32>) {
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&model_mat).unwrap();
+        queue.write_buffer(&self.model_mat_buf, 0, buf.into_inner().as_slice());
+    }
+
     fn init_bind_group(
         &mut self,
         device: &wgpu::Device,
@@ -240,6 +251,7 @@ impl GpuObject {
         proj_buf: &wgpu::Buffer,
         invproj_buf: &wgpu::Buffer,
         invcamera_buf: &wgpu::Buffer,
+        light_mat: &wgpu::Buffer,
         layout: &wgpu::BindGroupLayout,
     ) {
         self.bind_group.get_or_insert_with(|| {
@@ -274,6 +286,10 @@ impl GpuObject {
                     wgpu::BindGroupEntry {
                         binding: 6,
                         resource: self.color_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: light_mat.as_entire_binding(),
                     },
                 ],
             })
@@ -509,7 +525,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     {
         let mut model_mat = na::Matrix4::identity();
         model_mat *= na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0));
-        model_mat *= na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians());
+        model_mat *= na::Matrix4::new_rotation(na::Vector3::x() * 270.0f32.to_radians());
         model_mat *= na::Matrix4::new_scaling(100.0);
 
         let plane = Plane::new(na::Vector3::z());
@@ -545,6 +561,23 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         let teapot_obj = Object::new(teapot, model_mat, na::Vector3::new(0.5, 0.5, 1.0));
         let teapot_gpu = teapot_obj.as_gpu(&device, normals)?;
         objects.push(teapot_gpu);
+    }
+
+    {
+        let light_model = Cube::new(0.5);
+        let light_normals = light_model.normals();
+        let light_model_mat = na::Matrix4::<f32>::identity()
+            * na::Matrix4::new_translation(&na::Vector3::new(20.0, 2.0, 0.0))
+            * na::Matrix4::new_scaling(1.0);
+
+        let light_obj = Object::new(
+            light_model.model(),
+            light_model_mat,
+            na::Vector3::new(1.0, 1.0, 1.0),
+        );
+
+        let light_gpu = light_obj.as_gpu(&device, light_normals)?;
+        objects.push(light_gpu);
     }
 
     let swapchain_capabilities = surface.get_capabilities(&adapter);
@@ -679,6 +712,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 7,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
     });
 
@@ -758,8 +801,25 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         view_formats: &[],
     });
 
+    let mut light_model_mat = na::Matrix4::<f32>::identity()
+        * na::Matrix4::new_translation(&na::Vector3::new(10.0, 8.0, 0.0))
+        * na::Matrix4::new_scaling(1.0);
+
     let window = &window;
     let camera = &mut camera;
+    let light_model_mat = &mut light_model_mat;
+
+    let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
+    light_model_mat_contents.write(&light_model_mat)?;
+
+    let light_model_mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: light_model_mat_contents.into_inner().as_slice(),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    let mut delta = Instant::now();
+    let delta = &mut delta;
 
     event_loop
         .run(move |event, target| {
@@ -801,6 +861,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
+                        let delta_t = delta.elapsed().as_secs_f32();
+
+                        let light_rotation =
+                            (((delta_t / (1.0 / 60.0)) as u64 % 360) as f32).to_radians();
+
+                        light_model_mat.column_mut(3).x = light_rotation.cos() * 18.0;
+                        light_model_mat.column_mut(3).z = light_rotation.sin() * 18.0;
+
                         let frame = surface.get_current_texture().unwrap();
                         let view = frame
                             .texture
@@ -819,6 +887,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             queue.write_buffer(&invcamera_buf, 0, buf.into_inner().as_slice());
                         }
 
+                        {
+                            let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
+                            light_model_mat_contents.write(light_model_mat).unwrap();
+                            queue.write_buffer(
+                                &light_model_mat_buf,
+                                0,
+                                light_model_mat_contents.into_inner().as_slice(),
+                            );
+                            objects[objects.len() - 1].update_model_mat(&queue, light_model_mat);
+                        }
+
                         for (idx, object) in objects.iter_mut().enumerate() {
                             object.init_bind_group(
                                 &device,
@@ -826,6 +905,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 &proj_buf,
                                 &invproj_buf,
                                 &invcamera_buf,
+                                &light_model_mat_buf,
                                 &obj_bgl,
                             );
 
@@ -877,7 +957,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             queue.submit(Some(encoder.finish()));
                         }
 
-                        frame.present()
+                        frame.present();
+                        window.request_redraw();
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
                         if event.state.is_pressed() {
@@ -912,7 +993,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 }
                                 _ => {}
                             }
-                            window.request_redraw();
                         }
                     }
                     _ => {}
