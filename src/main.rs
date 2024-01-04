@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use na::indexing;
 use nalgebra as na;
 
 use winit::{
@@ -27,7 +26,7 @@ pub const OPENGL_TO_WGPU_MATRIX: na::Matrix4<f32> = na::Matrix4::new(
     0.0, 0.0, 0.0, 1.0,
 );
 
-const MOVE_DELTA: f32 = 0.1;
+const MOVE_DELTA: f32 = 0.25;
 const TILT_DELTA: f32 = 1.0;
 
 // Scale matrix:
@@ -349,16 +348,30 @@ impl Camera {
         }
     }
 
-    fn move_x(&mut self, d: f32) {
-        self.delta.x += d;
+    fn fly(&mut self, d: f32) {
+        self.delta += na::Vector3::y() * d;
     }
 
-    fn move_y(&mut self, d: f32) {
-        self.delta.y += d;
+    fn strafe(&mut self, d: f32) {
+        let target = na::Vector3::new(
+            self.pitch.cos() * self.yaw.cos(),
+            self.pitch.sin(),
+            self.pitch.cos() * self.yaw.sin(),
+        );
+
+        let right = target.cross(&na::Vector3::y()).normalize();
+        self.delta += right * d;
     }
 
-    fn move_z(&mut self, d: f32) {
-        self.delta.z += d;
+    fn forwards(&mut self, d: f32) {
+        let target = na::Vector3::new(
+            self.pitch.cos() * self.yaw.cos(),
+            self.pitch.sin(),
+            self.pitch.cos() * self.yaw.sin(),
+        )
+        .normalize();
+
+        self.delta += target * d;
     }
 
     fn tilt_horizontally(&mut self, d: f32) {
@@ -370,13 +383,16 @@ impl Camera {
     }
 
     fn look_at_matrix(&self) -> na::Matrix4<f32> {
-        let target = na::Point3::new(
+        let target = na::Vector3::new(
             self.pitch.cos() * self.yaw.cos(),
             self.pitch.sin(),
             self.pitch.cos() * self.yaw.sin(),
         );
 
-        na::Matrix4::look_at_rh(&(self.position + self.delta), &target, &na::Vector3::y())
+        let position_now = self.position + self.delta;
+        let target_now = position_now + target;
+
+        na::Matrix4::look_at_rh(&position_now, &target_now, &na::Vector3::y())
     }
 }
 
@@ -491,7 +507,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let mut objects = vec![];
     {
-        let mut model_mat = OPENGL_TO_WGPU_MATRIX;
+        let mut model_mat = na::Matrix4::identity();
         model_mat *= na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0));
         model_mat *= na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians());
         model_mat *= na::Matrix4::new_scaling(100.0);
@@ -505,7 +521,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     }
 
     {
-        let mut model_mat = OPENGL_TO_WGPU_MATRIX;
+        let mut model_mat = na::Matrix4::identity();
         model_mat *= na::Matrix4::new_translation(&na::Vector3::new(6.0, 2.001, 0.0));
         model_mat *= na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians());
         model_mat *= na::Matrix4::new_scaling(1.0);
@@ -537,8 +553,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     use wgpu::util::DeviceExt;
 
     // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
-    let projection =
-        na::Matrix4::new_perspective(aspect_ratio, 75.0f32.to_radians(), 0.1, 100000.0);
+    let projection = OPENGL_TO_WGPU_MATRIX
+        * na::Matrix4::new_perspective(aspect_ratio, 45.0f32.to_radians(), 0.1, 100.0);
 
     let proj_buf: wgpu::Buffer;
     {
@@ -563,9 +579,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     }
 
     let mut camera: Camera = Camera::new(
-        na::Point3::new(0.0, 0.1, -10.0),
+        na::Point3::new(0.0, 4.0, -40.0),
         0.0f32.to_radians(),
-        0.0f32.to_radians(),
+        90.0f32.to_radians(),
     );
 
     let invcamera_buf: wgpu::Buffer;
@@ -866,21 +882,21 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         if event.state.is_pressed() {
                             match event.physical_key {
                                 PhysicalKey::Code(KeyCode::KeyA) => {
-                                    camera.move_x(-MOVE_DELTA);
+                                    camera.strafe(-MOVE_DELTA);
                                 }
                                 PhysicalKey::Code(KeyCode::KeyD) => {
-                                    camera.move_x(MOVE_DELTA);
+                                    camera.strafe(MOVE_DELTA);
                                 }
                                 PhysicalKey::Code(KeyCode::KeyQ) => {
-                                    camera.move_y(MOVE_DELTA);
+                                    camera.fly(MOVE_DELTA);
                                 }
                                 PhysicalKey::Code(KeyCode::KeyZ) => {
-                                    camera.move_y(-MOVE_DELTA);
+                                    camera.fly(-MOVE_DELTA);
                                 }
                                 PhysicalKey::Code(KeyCode::KeyW) => {
-                                    camera.move_z(MOVE_DELTA);
+                                    camera.forwards(MOVE_DELTA);
                                 }
-                                PhysicalKey::Code(KeyCode::KeyS) => camera.move_z(-MOVE_DELTA),
+                                PhysicalKey::Code(KeyCode::KeyS) => camera.forwards(-MOVE_DELTA),
                                 PhysicalKey::Code(KeyCode::ArrowLeft) => {
                                     camera.tilt_horizontally(-TILT_DELTA.to_radians());
                                 }

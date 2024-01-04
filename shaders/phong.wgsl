@@ -40,6 +40,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lightDistance = length(lightPos - in.w_pos);
     var diffuse = max(dot(in.normal, lightDir), 0.0);
 
-
-    return 0.1 * vec4(albedo, 1.0) + 0.9 * diffuse * lightIntensity * vec4<f32>(lightColor, 1.0);
+    return 0.1 * vec4(albedo, 1.0) + 0.4 * diffuse * lightIntensity * vec4<f32>(lightColor, 1.0);
 }
