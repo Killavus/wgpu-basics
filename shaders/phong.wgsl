@@ -15,8 +15,6 @@ struct VertexOutput {
     @location(1) w_pos: vec4<f32>,
 };
 
-// N * V = 0
-// N * (M * V) = 0
 @vertex
 fn vs_main(@location(0) model_v: vec3<f32>, @location(1) normal_v: vec3<f32>) -> VertexOutput {
     var world_v = model * vec4<f32>(model_v, 1.0);
@@ -39,16 +37,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var lightPos = vec4(light[3].xyz, 0.0);
 
-    var diffuseStrength = 0.7;
+    var diffuseStrength = 0.1;
     var lightDir = normalize(lightPos - in.w_pos);
     var diffuseCoeff = max(dot(in.normal, lightDir), 0.0);
     var diffuse = diffuseStrength * diffuseCoeff * lightColor;
 
-    var specularStrength = 0.2;
+    var specularStrength = 0.8;
     var viewPos = vec4(inv_camera[3].xyz, 0.0);
     var viewDir = normalize(viewPos - in.w_pos);
     var reflectDir = reflect(-lightDir, in.normal);
-    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 256.0);
+    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
     var specular = specularStrength * specularCoeff * lightColor;
 
     return vec4(ambient + diffuse + specular, 1.0) * vec4(albedo, 1.0);

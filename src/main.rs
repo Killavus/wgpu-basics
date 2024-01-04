@@ -802,7 +802,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     });
 
     let mut light_model_mat = na::Matrix4::<f32>::identity()
-        * na::Matrix4::new_translation(&na::Vector3::new(10.0, 8.0, 0.0))
+        * na::Matrix4::new_translation(&na::Vector3::new(10.0, 10.0, 0.0))
         * na::Matrix4::new_scaling(1.0);
 
     let window = &window;
