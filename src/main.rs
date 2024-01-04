@@ -62,12 +62,15 @@ struct Plane {
 struct Object {
     model: Model,
     model_mat: na::Matrix4<f32>,
+    albedo: na::Vector3<f32>,
 }
 
 struct GpuObject {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     model_mat_buf: wgpu::Buffer,
+    inv_model_mat_transp_buf: wgpu::Buffer,
+    color_buf: wgpu::Buffer,
     num_indices: u64,
     bind_group: Option<wgpu::BindGroup>,
 }
@@ -169,7 +172,11 @@ impl Cube {
 impl GpuObject {
     fn new(object: &Object, device: &wgpu::Device, normals: Vec<na::Vector3<f32>>) -> Result<Self> {
         use wgpu::util::DeviceExt;
-        let Object { model, model_mat } = object;
+        let Object {
+            model,
+            model_mat,
+            albedo,
+        } = object;
 
         let vertex_buf_contents = model
             .vertices
@@ -192,6 +199,14 @@ impl GpuObject {
         });
 
         let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&albedo)?;
+        let color_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: buf.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+
+        let mut buf = encase::UniformBuffer::new(vec![]);
         buf.write(&model_mat)?;
         let model_mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
@@ -199,12 +214,23 @@ impl GpuObject {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&model_mat.try_inverse().unwrap().transpose())?;
+        let inv_model_mat_transp_buf =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: buf.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         Ok(Self {
             vertex_buf,
             index_buf,
             model_mat_buf,
+            inv_model_mat_transp_buf,
             num_indices: model.indices.len() as u64,
             bind_group: None,
+            color_buf,
         })
     }
 
@@ -212,6 +238,9 @@ impl GpuObject {
         &mut self,
         device: &wgpu::Device,
         camera_buf: &wgpu::Buffer,
+        proj_buf: &wgpu::Buffer,
+        invproj_buf: &wgpu::Buffer,
+        invcamera_buf: &wgpu::Buffer,
         layout: &wgpu::BindGroupLayout,
     ) {
         self.bind_group.get_or_insert_with(|| {
@@ -225,7 +254,27 @@ impl GpuObject {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
+                        resource: proj_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: invproj_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: invcamera_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
                         resource: self.model_mat_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: self.inv_model_mat_transp_buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: self.color_buf.as_entire_binding(),
                     },
                 ],
             })
@@ -238,8 +287,12 @@ impl GpuObject {
 }
 
 impl Object {
-    fn new(model: Model, model_mat: na::Matrix4<f32>) -> Self {
-        Self { model, model_mat }
+    fn new(model: Model, model_mat: na::Matrix4<f32>, albedo: na::Vector3<f32>) -> Self {
+        Self {
+            model,
+            model_mat,
+            albedo,
+        }
     }
 
     fn as_gpu(&self, device: &wgpu::Device, normals: Vec<na::Vector3<f32>>) -> Result<GpuObject> {
@@ -370,7 +423,7 @@ fn read_obj(path: impl AsRef<Path>) -> Result<Model> {
 }
 
 fn calculate_normals(model: &Model) -> Vec<na::Vector3<f32>> {
-    let mut normals = vec![na::Vector3::new(0.0, 0.0, 0.0); model.vertices.len()];
+    let mut normals = vec![na::Vector3::zeros(); model.vertices.len()];
 
     for i in (0..model.indices.len()).step_by(3) {
         let i0 = model.indices[i] as usize;
@@ -443,7 +496,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         let plane = Plane::new(na::Vector3::z());
         let normals = plane.normals();
 
-        let plane_obj = Object::new(plane.model(), model_mat);
+        let plane_obj = Object::new(plane.model(), model_mat, na::Vector3::new(0.6, 0.6, 0.6));
         let plane_gpu = plane_obj.as_gpu(&device, normals)?;
         objects.push(plane_gpu);
     }
@@ -457,7 +510,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         let cube = Cube::new(4.0);
         let normals = cube.normals();
 
-        let cube_obj = Object::new(cube.model(), model_mat);
+        let cube_obj = Object::new(cube.model(), model_mat, na::Vector3::new(0.8, 0.2, 0.2));
         let cube_gpu = cube_obj.as_gpu(&device, normals)?;
         objects.push(cube_gpu);
     }
@@ -470,7 +523,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
             * na::Matrix4::new_scaling(3.0);
 
-        let teapot_obj = Object::new(teapot, model_mat);
+        let teapot_obj = Object::new(teapot, model_mat, na::Vector3::new(0.5, 0.5, 1.0));
         let teapot_gpu = teapot_obj.as_gpu(&device, normals)?;
         objects.push(teapot_gpu);
     }
@@ -484,16 +537,49 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let projection =
         na::Matrix4::new_perspective(aspect_ratio, 75.0f32.to_radians(), 0.1, 100000.0);
 
+    let proj_buf: wgpu::Buffer;
+    {
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&(OPENGL_TO_WGPU_MATRIX * projection))?;
+        proj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: buf.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+    }
+
+    let invproj_buf: wgpu::Buffer;
+    {
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&(OPENGL_TO_WGPU_MATRIX * projection).try_inverse().unwrap())?;
+        invproj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: buf.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+    }
+
     let mut camera: Camera = Camera::new(
         na::Point3::new(0.0, 0.1, -10.0),
         0.0f32.to_radians(),
         0.0f32.to_radians(),
     );
 
+    let invcamera_buf: wgpu::Buffer;
+    {
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(&camera.look_at_matrix().try_inverse().unwrap())?;
+        invcamera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: buf.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+    }
+
     let camera_buf: wgpu::Buffer;
     {
         let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&(OPENGL_TO_WGPU_MATRIX * projection * camera.look_at_matrix()))?;
+        buf.write(&camera.look_at_matrix())?;
         camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: buf.into_inner().as_slice(),
@@ -517,6 +603,56 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 6,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -652,15 +788,26 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
                         {
                             let mut buf = encase::UniformBuffer::new(vec![]);
-                            buf.write(
-                                &(OPENGL_TO_WGPU_MATRIX * projection * camera.look_at_matrix()),
-                            )
-                            .unwrap();
+                            buf.write(&camera.look_at_matrix()).unwrap();
                             queue.write_buffer(&camera_buf, 0, buf.into_inner().as_slice());
                         }
 
+                        {
+                            let mut buf = encase::UniformBuffer::new(vec![]);
+                            buf.write(&camera.look_at_matrix().try_inverse().unwrap())
+                                .unwrap();
+                            queue.write_buffer(&invcamera_buf, 0, buf.into_inner().as_slice());
+                        }
+
                         for (idx, object) in objects.iter_mut().enumerate() {
-                            object.init_bind_group(&device, &camera_buf, &obj_bgl);
+                            object.init_bind_group(
+                                &device,
+                                &camera_buf,
+                                &proj_buf,
+                                &invproj_buf,
+                                &invcamera_buf,
+                                &obj_bgl,
+                            );
 
                             let mut encoder = device
                                 .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
