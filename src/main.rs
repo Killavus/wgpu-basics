@@ -49,17 +49,6 @@ const TILT_DELTA: f32 = 1.0;
 // [0 0 1 tz]
 // [0 0 0 1]
 
-#[derive(Debug)]
-struct Model {
-    mesh: Vec<na::Vector3<f32>>,
-    faces: Vec<u32>,
-}
-
-struct Light {
-    position: na::Point3<f32>,
-    color: na::Vector3<f32>,
-}
-
 use model::{Cube, GpuModel, ObjParser, Plane};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
@@ -100,12 +89,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         label: None,
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/phong.wgsl"))),
     });
-
-    let mut camera: Camera = Camera::new(
-        na::Point3::new(0.0, 4.0, -40.0),
-        0.0f32.to_radians(),
-        90.0f32.to_radians(),
-    );
 
     let mut cubes = WorldModel::new(Cube::new().model());
     let mut planes = WorldModel::new(Plane::new(na::Vector3::z()).model());
