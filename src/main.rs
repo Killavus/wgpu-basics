@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use nalgebra as na;
 
 use winit::{
@@ -7,9 +7,10 @@ use winit::{
 
 use camera::Camera;
 
-use std::{borrow::Cow, time::Instant};
+use std::time::Instant;
 
 mod camera;
+mod gpu;
 mod model;
 mod world_model;
 
@@ -49,46 +50,13 @@ const TILT_DELTA: f32 = 1.0;
 // [0 0 1 tz]
 // [0 0 0 1]
 
+use gpu::Gpu;
 use model::{Cube, GpuModel, ObjParser, Plane};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
-    let mut size = window.inner_size();
-    size.width = size.width.max(1);
-    size.height = size.height.max(1);
+    let mut gpu = Gpu::from_window(&window).await?;
 
-    let aspect_ratio = size.width as f32 / size.height as f32;
-
-    let instance = wgpu::Instance::default();
-    let surface = unsafe { instance.create_surface(&window).unwrap() };
-
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            // Request an adapter which can render to our surface
-            compatible_surface: Some(&surface),
-        })
-        .await
-        .ok_or(anyhow::anyhow!("Failed to find an appropriate adapter"))?;
-
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: wgpu::Features::empty(),
-                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                limits: wgpu::Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
-            },
-            None,
-        )
-        .await
-        .context("Failed to create device")?;
-
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("../shaders/phong.wgsl"))),
-    });
+    let shader = gpu.shader_from_code(include_str!("../shaders/phong.wgsl"));
 
     let mut cubes = WorldModel::new(Cube::new().model());
     let mut planes = WorldModel::new(Plane::new(na::Vector3::z()).model());
@@ -128,222 +96,215 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(0.2, 0.8, 0.4),
     );
 
-    let mut cubes = cubes.into_gpu(&device);
-    let mut planes = planes.into_gpu(&device);
-    let mut teapots = teapots.into_gpu(&device);
-
-    let swapchain_capabilities = surface.get_capabilities(&adapter);
-    let swapchain_format = swapchain_capabilities.formats[0];
-
-    use wgpu::util::DeviceExt;
+    let mut cubes = cubes.into_gpu(&gpu.device);
+    let mut planes = planes.into_gpu(&gpu.device);
+    let mut teapots = teapots.into_gpu(&gpu.device);
 
     // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
     let projection = OPENGL_TO_WGPU_MATRIX
-        * na::Matrix4::new_perspective(aspect_ratio, 45.0f32.to_radians(), 0.1, 100.0);
+        * na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
 
-    let proj_buf: wgpu::Buffer;
-    {
-        let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&(OPENGL_TO_WGPU_MATRIX * projection))?;
-        proj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: buf.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-    }
-
-    let invproj_buf: wgpu::Buffer;
-    {
-        let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&(OPENGL_TO_WGPU_MATRIX * projection).try_inverse().unwrap())?;
-        invproj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: buf.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-    }
+    use wgpu::util::DeviceExt;
 
     let mut camera: Camera = Camera::new(
         na::Point3::new(0.0, 4.0, -40.0),
         0.0f32.to_radians(),
         90.0f32.to_radians(),
     );
-
-    let invcamera_buf: wgpu::Buffer;
-    {
-        let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&camera.look_at_matrix().try_inverse().unwrap())?;
-        invcamera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: buf.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-    }
-
+    let scene_bg: wgpu::BindGroup;
+    let scene_bgl: wgpu::BindGroupLayout;
+    let mut depth_tex: wgpu::Texture;
+    let pipeline_layout: wgpu::PipelineLayout;
+    let render_pipeline: wgpu::RenderPipeline;
+    let proj_buf: wgpu::Buffer;
     let camera_buf: wgpu::Buffer;
+    let invproj_buf: wgpu::Buffer;
+    let invcamera_buf: wgpu::Buffer;
+    let light_model_mat_buf: wgpu::Buffer;
+
     {
-        let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(&camera.look_at_matrix())?;
-        camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let Gpu { ref device, .. } = gpu;
+
+        {
+            let mut buf = encase::UniformBuffer::new(vec![]);
+            buf.write(&(OPENGL_TO_WGPU_MATRIX * projection))?;
+            proj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: buf.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+
+        {
+            let mut buf = encase::UniformBuffer::new(vec![]);
+            buf.write(&(OPENGL_TO_WGPU_MATRIX * projection).try_inverse().unwrap())?;
+            invproj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: buf.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+
+        {
+            let mut buf = encase::UniformBuffer::new(vec![]);
+            buf.write(&camera.look_at_matrix().try_inverse().unwrap())?;
+            invcamera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: buf.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+
+        {
+            let mut buf = encase::UniformBuffer::new(vec![]);
+            buf.write(&camera.look_at_matrix())?;
+            camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: buf.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+
+        scene_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
-            contents: buf.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        {
+            let light_model_mat = cubes.model_mat(light_idx);
+            let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
+            light_model_mat_contents.write(&light_model_mat)?;
+
+            light_model_mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: light_model_mat_contents.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        }
+
+        scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &scene_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: proj_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: invproj_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: invcamera_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: light_model_mat_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&scene_bgl],
+            push_constant_ranges: &[],
+        });
+
+        render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(gpu.swapchain_format().into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
+
+        depth_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: gpu.viewport_size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
         });
     }
-
-    let scene_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: None,
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 3,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 4,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
-    });
-
-    let light_model_mat = cubes.model_mat(light_idx);
-    let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
-    light_model_mat_contents.write(&light_model_mat)?;
-
-    let light_model_mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: None,
-        contents: light_model_mat_contents.into_inner().as_slice(),
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    });
-
-    let scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &scene_bgl,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: proj_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: invproj_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: invcamera_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: light_model_mat_buf.as_entire_binding(),
-            },
-        ],
-    });
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
-        bind_group_layouts: &[&scene_bgl],
-        push_constant_ranges: &[],
-    });
-
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: None,
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_main",
-            buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main",
-            targets: &[Some(swapchain_format.into())],
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            ..Default::default()
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::LessEqual,
-            stencil: Default::default(),
-            bias: Default::default(),
-        }),
-        multisample: wgpu::MultisampleState::default(),
-        multiview: None,
-    });
-
-    let mut config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: swapchain_format,
-        width: size.width,
-        height: size.height,
-        present_mode: wgpu::PresentMode::Fifo,
-        alpha_mode: swapchain_capabilities.alpha_modes[0],
-        view_formats: vec![],
-    };
-
-    surface.configure(&device, &config);
-
-    let mut depth_tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: size.width,
-            height: size.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
 
     let window = &window;
     let camera = &mut camera;
@@ -355,13 +316,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let planes = &mut planes;
     let teapots = &mut teapots;
 
+    let gpu = &mut gpu;
+
     event_loop
         .run(move |event, target| {
-            // Have the closure take ownership of the resources.
-            // `event_loop.run` never returns, therefore we must do this to ensure
-            // the resources are properly cleaned up.
-            // let _ = (&instance, &adapter, &shader, &pipeline_layout);
-
             use winit::keyboard::KeyCode;
             if let Event::WindowEvent {
                 window_id: _,
@@ -371,10 +329,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 match event {
                     WindowEvent::Resized(new_size) => {
                         // Reconfigure the surface with the new size
-                        config.width = new_size.width.max(1);
-                        config.height = new_size.height.max(1);
-                        surface.configure(&device, &config);
-                        depth_tex = device.create_texture(&wgpu::TextureDescriptor {
+                        gpu.on_resize((new_size.width, new_size.height));
+                        depth_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
                             label: None,
                             size: wgpu::Extent3d {
                                 width: new_size.width,
@@ -395,6 +351,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
+                        let Gpu {
+                            ref device,
+                            ref queue,
+                            ..
+                        } = gpu;
+
                         let delta_t = delta.elapsed().as_secs_f32();
 
                         let mut light_model_mat = cubes.model_mat(light_idx);
@@ -404,9 +366,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         light_model_mat.column_mut(3).x = light_rotation.cos() * 18.0;
                         light_model_mat.column_mut(3).z = light_rotation.sin() * 18.0;
 
-                        cubes.update_world(&queue, light_idx, light_model_mat);
+                        cubes.update_world(queue, light_idx, light_model_mat);
 
-                        let frame = surface.get_current_texture().unwrap();
+                        let frame = gpu.current_texture();
                         let view = frame
                             .texture
                             .create_view(&wgpu::TextureViewDescriptor::default());
