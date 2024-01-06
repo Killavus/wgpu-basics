@@ -30,10 +30,6 @@ impl Gpu {
         }
     }
 
-    pub fn alpha_mode(&self) -> wgpu::CompositeAlphaMode {
-        self.surface_config.alpha_mode
-    }
-
     pub fn shader_from_code(&self, code: &str) -> wgpu::ShaderModule {
         self.device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
