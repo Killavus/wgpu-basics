@@ -84,7 +84,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     );
 
     let light_idx = cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(20.0, 8.0, 0.0))
+        na::Matrix4::new_translation(&na::Vector3::new(6.0, 4.0, 0.0))
             * na::Matrix4::new_scaling(0.5),
         na::Vector3::new(1.0, 1.0, 1.0),
     );
@@ -101,13 +101,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
     let projection = OPENGL_TO_WGPU_MATRIX
         * na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
-    //        * na::Matrix4::new_orthographic(-10.0, 10.0, -10.0, 10.0, 0.1, 100.0);
 
     use wgpu::util::DeviceExt;
 
     let mut camera: Camera = Camera::new(
-        na::Point3::new(0.0, 0.5, 20.0),
-        0.0f32.to_radians(),
+        na::Point3::new(0.0, 18.0, 14.0),
+        -45.0f32.to_radians(),
         270.0f32.to_radians(),
     );
 
@@ -365,8 +364,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let light_rotation =
                             (((delta_t / (1.0 / 60.0)) as u64 % 360) as f32).to_radians();
 
-                        light_model_mat.column_mut(3).x = light_rotation.cos() * 18.0;
-                        light_model_mat.column_mut(3).z = light_rotation.sin() * 18.0;
+                        light_model_mat.column_mut(3).x = light_rotation.cos() * 6.0;
+                        light_model_mat.column_mut(3).z = light_rotation.sin() * 6.0;
 
                         cubes.update_world(queue, light_idx, light_model_mat);
 
