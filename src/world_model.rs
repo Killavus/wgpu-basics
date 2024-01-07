@@ -119,7 +119,7 @@ impl GpuWorldModel {
         self.model_matrices[idx] = matrix;
 
         let offset =
-            idx * 2 * std::mem::size_of::<Matrix4<f32>>() + std::mem::size_of::<Vector3<f32>>();
+            idx * (2 * std::mem::size_of::<Matrix4<f32>>() + std::mem::size_of::<Vector3<f32>>());
 
         let mut updated_data: Vec<u8> = Vec::with_capacity(
             2 * std::mem::size_of::<Matrix4<f32>>() + std::mem::size_of::<Vector3<f32>>(),

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use na::Vector3;
 use nalgebra as na;
 
 use winit::{
@@ -59,25 +60,24 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let shader = gpu.shader_from_code(include_str!("../shaders/phong.wgsl"));
 
     let mut cubes = WorldModel::new(Cube::new().model());
-    let mut planes = WorldModel::new(Plane::new(na::Vector3::z()).model());
+    let mut planes = WorldModel::new(Plane::new().model());
     let mut teapots = WorldModel::new(ObjParser::read_model("./models/teapot.obj")?);
 
     planes.add(
         na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
-            * na::Matrix4::new_rotation(na::Vector3::x() * 270.0f32.to_radians())
             * na::Matrix4::new_scaling(100.0),
         na::Vector3::new(0.6, 0.6, 0.6),
     );
 
     teapots.add(
-        na::Matrix4::new_translation(&na::Vector3::new(-2.0, 0.0, 0.0))
+        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
             * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-            * na::Matrix4::new_scaling(2.0),
+            * na::Matrix4::new_scaling(1.0),
         na::Vector3::new(0.5, 0.5, 1.0),
     );
 
     cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(6.0, 2.001, 0.0))
+        na::Matrix4::new_translation(&na::Vector3::new(4.0, 0.5, 0.0))
             * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
             * na::Matrix4::new_scaling(1.0),
         na::Vector3::new(0.8, 0.2, 0.2),
@@ -90,9 +90,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     );
 
     cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(-12.0, 2.000, 8.0))
-            * na::Matrix4::new_rotation(na::Vector3::y() * 77.0f32.to_radians())
-            * na::Matrix4::new_scaling(2.5),
+        na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.5, -4.0)),
         na::Vector3::new(0.2, 0.8, 0.4),
     );
 
@@ -103,14 +101,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
     let projection = OPENGL_TO_WGPU_MATRIX
         * na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
+    //        * na::Matrix4::new_orthographic(-10.0, 10.0, -10.0, 10.0, 0.1, 100.0);
 
     use wgpu::util::DeviceExt;
 
     let mut camera: Camera = Camera::new(
-        na::Point3::new(0.0, 4.0, -40.0),
+        na::Point3::new(0.0, 0.5, 20.0),
         0.0f32.to_radians(),
-        90.0f32.to_radians(),
+        270.0f32.to_radians(),
     );
+
     let scene_bg: wgpu::BindGroup;
     let scene_bgl: wgpu::BindGroupLayout;
     let mut depth_tex: wgpu::Texture;
@@ -281,6 +281,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {

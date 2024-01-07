@@ -289,39 +289,38 @@ impl ObjParser {
     }
 }
 
-pub struct Plane {
-    normal: na::Vector3<f32>,
-}
+pub struct Plane;
 
 impl Plane {
-    pub fn new(normal: na::Vector3<f32>) -> Self {
-        Self { normal }
+    pub fn new() -> Self {
+        Self
     }
 
     pub fn model(&self) -> Model {
         let mut mesh = vec![];
         let mut faces = vec![];
-        let normals = [self.normal; 4];
 
-        let z = self.normal.cross(&na::Vector3::y()).normalize();
-        let x = self.normal.cross(&z).normalize();
+        let normal = na::Vector3::<f32>::y();
+        let normals = [normal; 4];
+        let x = na::Vector3::<f32>::x();
+        let z = na::Vector3::<f32>::z();
 
-        let tl = -x - z;
-        let tr = x - z;
-        let bl = -x + z;
-        let br = x + z;
+        let tl = -0.5 * x - 0.5 * z;
+        let tr = 0.5 * x - 0.5 * z;
+        let bl = -0.5 * x + 0.5 * z;
+        let br = 0.5 * x + 0.5 * z;
 
         mesh.push(tl);
         mesh.push(tr);
         mesh.push(bl);
         mesh.push(br);
 
-        faces.push(0);
-        faces.push(1);
         faces.push(2);
-        faces.push(1);
         faces.push(3);
-        faces.push(2);
+        faces.push(0);
+        faces.push(0);
+        faces.push(3);
+        faces.push(1);
 
         ModelBuilder::new(mesh)
             .with_faces(faces)
@@ -343,68 +342,62 @@ impl Cube {
         let mut faces = vec![];
 
         let half_size = 0.5;
-        mesh.push(FVec3::new(-half_size, half_size, -half_size)); // front-tl
-        mesh.push(FVec3::new(half_size, half_size, -half_size)); // front-tr
-        mesh.push(FVec3::new(-half_size, -half_size, -half_size)); // front-bl
-        mesh.push(FVec3::new(half_size, -half_size, -half_size)); // front-br
-        mesh.push(FVec3::new(-half_size, half_size, half_size)); // back-tl
-        mesh.push(FVec3::new(half_size, half_size, half_size)); // back-tr
-        mesh.push(FVec3::new(-half_size, -half_size, half_size)); // back-bl
-        mesh.push(FVec3::new(half_size, -half_size, half_size)); // back-br
+        mesh.push(FVec3::new(-half_size, half_size, half_size)); // front-tl 0
+        mesh.push(FVec3::new(half_size, half_size, half_size)); // front-tr 1
+        mesh.push(FVec3::new(-half_size, -half_size, half_size)); // front-bl 2
+        mesh.push(FVec3::new(half_size, -half_size, half_size)); // front-br 3
+        mesh.push(FVec3::new(-half_size, half_size, -half_size)); // back-tl 4
+        mesh.push(FVec3::new(half_size, half_size, -half_size)); // back-tr 5
+        mesh.push(FVec3::new(-half_size, -half_size, -half_size)); // back-bl 6
+        mesh.push(FVec3::new(half_size, -half_size, -half_size)); // back-br 7
+
+        faces.push(2);
+        faces.push(1);
+        faces.push(0);
+        faces.push(1);
+        faces.push(2);
+        faces.push(3);
+
+        faces.push(4);
+        faces.push(5);
+        faces.push(6);
+        faces.push(7);
+        faces.push(6);
+        faces.push(5);
+
+        faces.push(0);
+        faces.push(1);
+        faces.push(4);
+        faces.push(5);
+        faces.push(4);
+        faces.push(1);
+
+        faces.push(6);
+        faces.push(3);
+        faces.push(2);
+        faces.push(6);
+        faces.push(7);
+        faces.push(3);
+
+        faces.push(4);
+        faces.push(2);
+        faces.push(0);
+        faces.push(4);
+        faces.push(6);
+        faces.push(2);
+
+        faces.push(7);
+        faces.push(5);
+        faces.push(1);
+        faces.push(1);
+        faces.push(3);
+        faces.push(7);
 
         let normals: Vec<FVec3> = mesh
             .iter()
             .copied()
             .map(|v| (v - center).normalize())
             .collect();
-
-        faces.push(0);
-        faces.push(2);
-        faces.push(1);
-
-        faces.push(1);
-        faces.push(2);
-        faces.push(3);
-
-        faces.push(4);
-        faces.push(6);
-        faces.push(5);
-
-        faces.push(5);
-        faces.push(6);
-        faces.push(7);
-
-        faces.push(0);
-        faces.push(2);
-        faces.push(4);
-
-        faces.push(4);
-        faces.push(6);
-        faces.push(2);
-
-        faces.push(1);
-        faces.push(3);
-        faces.push(5);
-
-        faces.push(5);
-        faces.push(7);
-        faces.push(3);
-
-        faces.push(0);
-        faces.push(4);
-        faces.push(1);
-
-        faces.push(1);
-        faces.push(5);
-        faces.push(4);
-
-        faces.push(2);
-        faces.push(6);
-        faces.push(3);
-
-        faces.push(3);
-        faces.push(7);
-        faces.push(6);
 
         ModelBuilder::new(mesh)
             .with_faces(faces)
