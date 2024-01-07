@@ -83,11 +83,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(0.8, 0.2, 0.2),
     );
 
-    let light_idx = cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(6.0, 4.0, 0.0))
-            * na::Matrix4::new_scaling(0.5),
-        na::Vector3::new(1.0, 1.0, 1.0),
-    );
+    // let light_idx: usize = cubes.add(
+    //     na::Matrix4::new_translation(&na::Vector3::new(6.0, 4.0, 0.0))
+    //         * na::Matrix4::new_scaling(0.5),
+    //     na::Vector3::new(1.0, 1.0, 1.0),
+    // );
 
     cubes.add(
         na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.5, -4.0)),
@@ -109,6 +109,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         -45.0f32.to_radians(),
         270.0f32.to_radians(),
     );
+
+    let mut light_pos = na::Vector3::new(6.0, 4.0, 0.0);
 
     let mut scene_bg: wgpu::BindGroup;
     let scene_bgl: wgpu::BindGroupLayout;
@@ -163,12 +165,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
         {
             let mut buf = encase::UniformBuffer::new(vec![]);
-            let light_mat = cubes.model_mat(light_idx);
-            let light_pos = light_mat.column(3).xyz();
 
             buf.write(&na::Matrix4::look_at_rh(
                 &light_pos.into(),
-                &camera.target(),
+                &na::Point3::new(0.0, 0.0, 0.0),
                 &na::Vector3::y(),
             ))?;
             smap_cam_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -298,11 +298,21 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
         {
-            let light_model_mat = cubes.model_mat(light_idx);
+            let light_model_mat = na::Matrix4::new_translation(&light_pos);
             let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
             light_model_mat_contents.write(&light_model_mat)?;
 
@@ -316,7 +326,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         smap_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: 1024,
+                width: (1024.0 * gpu.aspect_ratio()) as u32,
                 height: 1024,
                 depth_or_array_layers: 1,
             },
@@ -376,6 +386,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 wgpu::BindGroupEntry {
                     binding: 6,
                     resource: wgpu::BindingResource::Sampler(&smap_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: smap_cam_buf.as_entire_binding(),
                 },
             ],
         });
@@ -445,7 +459,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Front),
+                cull_mode: None,
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -473,6 +487,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let gpu = &mut gpu;
     let smap_tex = &mut smap_tex;
     let scene_bg = &mut scene_bg;
+    let light_pos = &mut light_pos;
 
     event_loop
         .run(move |event, target| {
@@ -516,14 +531,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
                         let delta_t = delta.elapsed().as_secs_f32();
 
-                        let mut light_model_mat = cubes.model_mat(light_idx);
                         let light_rotation =
                             (((delta_t / (1.0 / 60.0)) as u64 % 360) as f32).to_radians();
 
-                        light_model_mat.column_mut(3).x = light_rotation.cos() * 6.0;
-                        light_model_mat.column_mut(3).z = light_rotation.sin() * 6.0;
-
-                        cubes.update_world(queue, light_idx, light_model_mat);
+                        light_pos.x = light_rotation.cos() * 6.0;
+                        light_pos.z = light_rotation.sin() * 6.0;
+                        let light_model_mat = na::Matrix4::new_translation(light_pos);
 
                         let frame = gpu.current_texture();
                         let view = frame
@@ -539,8 +552,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         {
                             let mut buf = encase::UniformBuffer::new(vec![]);
                             let light_cam = na::Matrix4::look_at_rh(
-                                &(light_model_mat.column(3).xyz()).into(),
-                                &camera.target(),
+                                &light_pos.xyz().into(),
+                                &na::Point3::new(0.0, 0.0, 0.0),
                                 &na::Vector3::y(),
                             );
                             buf.write(&light_cam).unwrap();
@@ -595,6 +608,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             planes.draw(&mut smappass);
                             teapots.draw(&mut smappass);
                         }
+                        queue.submit(Some(encoder.finish()));
+                        let mut encoder = device
+                            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
                         {
                             let depth_view =
                                 depth_tex.create_view(&wgpu::TextureViewDescriptor::default());
