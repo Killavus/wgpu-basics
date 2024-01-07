@@ -51,7 +51,7 @@ impl Camera {
         self.pitch += d;
     }
 
-    pub fn look_at_matrix(&self) -> na::Matrix4<f32> {
+    pub fn target(&self) -> na::Point3<f32> {
         let target = na::Vector3::new(
             self.pitch.cos() * self.yaw.cos(),
             self.pitch.sin(),
@@ -59,8 +59,12 @@ impl Camera {
         );
 
         let position_now = self.position + self.delta;
-        let target_now = position_now + target;
+        position_now + target
+    }
 
-        na::Matrix4::look_at_rh(&position_now, &target_now, &na::Vector3::y())
+    pub fn look_at_matrix(&self) -> na::Matrix4<f32> {
+        let position_now = self.position + self.delta;
+
+        na::Matrix4::look_at_rh(&position_now, &self.target(), &na::Vector3::y())
     }
 }

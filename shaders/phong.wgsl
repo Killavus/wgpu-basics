@@ -4,6 +4,8 @@
 @group(0) @binding(2) var<uniform> inv_projection: mat4x4<f32>;
 @group(0) @binding(3) var<uniform> inv_camera: mat4x4<f32>;
 @group(0) @binding(4) var<uniform> light: mat4x4<f32>;
+@group(0) @binding(5) var shadowMap: texture_2d<f32>;
+@group(0) @binding(6) var shadowMapSampler: sampler;
 
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
@@ -45,6 +47,7 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
 
     return out;
 }
+
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
