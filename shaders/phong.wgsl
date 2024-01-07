@@ -55,12 +55,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var lightPos = vec4(light[3].xyz, 0.0);
 
-    var diffuseStrength = 0.1;
+    var diffuseStrength = 0.5;
     var lightDir = normalize(lightPos - in.w_pos);
     var diffuseCoeff = max(dot(in.normal, lightDir), 0.0);
     var diffuse = diffuseStrength * diffuseCoeff * lightColor;
 
-    var specularStrength = 0.8;
+    var specularStrength = 0.4;
     var viewPos = vec4(inv_camera[3].xyz, 0.0);
     var viewDir = normalize(viewPos - in.w_pos);
     var reflectDir = reflect(-lightDir, in.normal);
