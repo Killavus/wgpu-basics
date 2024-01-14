@@ -1,4 +1,10 @@
-use std::{borrow::Cow, path::Path};
+use anyhow::Result;
+use encase::{ShaderSize, UniformBuffer};
+use nalgebra as na;
+use std::{borrow::Cow, num::NonZeroU64, path::Path};
+
+const MAT4_SIZE: NonZeroU64 = na::Matrix4::<f32>::SHADER_SIZE;
+
 pub struct Gpu {
     pub instance: wgpu::Instance,
     pub surface: wgpu::Surface,
@@ -8,7 +14,6 @@ pub struct Gpu {
     pub surface_config: wgpu::SurfaceConfiguration,
 }
 
-use anyhow::Result;
 use winit::window::Window;
 
 impl Gpu {
@@ -106,4 +111,52 @@ async fn get_gpu(window: &Window) -> Result<Gpu> {
         queue,
         surface_config,
     })
+}
+
+pub struct GpuMat4(na::Matrix4<f32>, wgpu::Buffer);
+
+impl GpuMat4 {
+    pub fn new(mat: na::Matrix4<f32>, device: &wgpu::Device) -> Result<Self> {
+        use wgpu::util::DeviceExt;
+
+        let size: u64 = MAT4_SIZE.into();
+        let mut contents = UniformBuffer::new(Vec::with_capacity(size as usize));
+        contents.write(&mat)?;
+
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: contents.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        Ok(Self(mat, buffer))
+    }
+
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.1
+    }
+
+    pub fn update_with<F>(&mut self, queue: &wgpu::Queue, updater: F) -> Result<()>
+    where
+        F: Fn(&mut na::Matrix4<f32>),
+    {
+        updater(&mut self.0);
+
+        let size: u64 = MAT4_SIZE.into();
+        let mut contents = UniformBuffer::new(Vec::with_capacity(size as usize));
+        contents.write(&self.0)?;
+
+        queue.write_buffer(&self.1, 0, contents.into_inner().as_slice());
+        Ok(())
+    }
+
+    pub fn update(&mut self, queue: &wgpu::Queue, mat: na::Matrix4<f32>) -> Result<()> {
+        self.0 = mat;
+        let size: u64 = MAT4_SIZE.into();
+        let mut contents = UniformBuffer::new(Vec::with_capacity(size as usize));
+        contents.write(&self.0)?;
+
+        queue.write_buffer(&self.1, 0, contents.into_inner().as_slice());
+        Ok(())
+    }
 }

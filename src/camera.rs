@@ -1,9 +1,8 @@
+use crate::gpu::GpuMat4;
 use anyhow::Result;
-use encase::{ShaderSize, UniformBuffer};
 use nalgebra as na;
 
-const SIZE: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
-
+#[derive(Clone, Copy)]
 pub struct Camera {
     position: na::Point3<f32>,
     delta: na::Vector3<f32>,
@@ -79,23 +78,17 @@ impl Camera {
 
 pub struct GpuCamera {
     camera: Camera,
-    camera_buf: wgpu::Buffer,
+    gpu_mat: GpuMat4,
+    gpu_inv_mat: GpuMat4,
 }
 
 impl GpuCamera {
     pub fn new(camera: Camera, device: &wgpu::Device) -> Result<Self> {
-        use wgpu::util::DeviceExt;
-
-        let mut contents = UniformBuffer::new(Vec::with_capacity(SIZE as usize));
-        contents.write(&camera.look_at_matrix())?;
-
-        let camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: contents.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        Ok(Self { camera, camera_buf })
+        Ok(Self {
+            camera,
+            gpu_mat: GpuMat4::new(camera.look_at_matrix(), device)?,
+            gpu_inv_mat: GpuMat4::new(camera.look_at_matrix().try_inverse().unwrap(), device)?,
+        })
     }
 
     pub fn look_at_matrix(&self) -> na::Matrix4<f32> {
@@ -103,7 +96,11 @@ impl GpuCamera {
     }
 
     pub fn buffer(&self) -> &wgpu::Buffer {
-        &self.camera_buf
+        self.gpu_mat.buffer()
+    }
+
+    pub fn model_buffer(&self) -> &wgpu::Buffer {
+        self.gpu_inv_mat.buffer()
     }
 
     pub fn update<F>(&mut self, queue: &wgpu::Queue, updater: F) -> Result<()>
@@ -112,9 +109,9 @@ impl GpuCamera {
     {
         updater(&mut self.camera);
 
-        let mut contents = UniformBuffer::new(Vec::with_capacity(SIZE as usize));
-        contents.write(&self.camera.look_at_matrix())?;
-        queue.write_buffer(&self.camera_buf, 0, contents.into_inner().as_slice());
+        self.gpu_mat.update(queue, self.camera.look_at_matrix())?;
+        self.gpu_inv_mat
+            .update(queue, self.camera.look_at_matrix().try_inverse().unwrap())?;
         Ok(())
     }
 }

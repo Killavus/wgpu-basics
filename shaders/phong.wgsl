@@ -1,13 +1,12 @@
 
 @group(0) @binding(0) var<uniform> camera: mat4x4<f32>;
 @group(0) @binding(1) var<uniform> projection: mat4x4<f32>;
-@group(0) @binding(2) var<uniform> inv_projection: mat4x4<f32>;
-@group(0) @binding(3) var<uniform> inv_camera: mat4x4<f32>;
-@group(0) @binding(4) var<uniform> light: mat4x4<f32>;
-@group(0) @binding(5) var shadowMap: texture_depth_2d;
-@group(0) @binding(6) var shadowMapSampler: sampler;
-@group(0) @binding(7) var<uniform> lightCamera: mat4x4<f32>;
-@group(0) @binding(8) var<uniform> lightProjection: mat4x4<f32>;
+@group(0) @binding(2) var<uniform> camera_model: mat4x4<f32>;
+@group(0) @binding(3) var<uniform> light: mat4x4<f32>;
+@group(0) @binding(4) var shadowMap: texture_depth_2d;
+@group(0) @binding(5) var shadowMapSampler: sampler;
+@group(0) @binding(6) var<uniform> lightCamera: mat4x4<f32>;
+@group(0) @binding(7) var<uniform> lightProjection: mat4x4<f32>;
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
     @location(1) normal_v: vec3<f32>,
@@ -79,7 +78,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 
     var specularStrength = 0.4;
-    var viewPos = vec4(inv_camera[3].xyz, 0.0);
+    var viewPos = vec4(camera_model[3].xyz, 0.0);
     var viewDir = normalize(viewPos - in.w_pos);
     var reflectDir = reflect(-lightDir, in.normal);
     var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);

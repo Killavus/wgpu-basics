@@ -20,7 +20,7 @@ use world_model::{GpuWorldModel, WorldModel};
 const MOVE_DELTA: f32 = 0.25;
 const TILT_DELTA: f32 = 1.0;
 
-use gpu::Gpu;
+use gpu::{Gpu, GpuMat4};
 use model::{Cube, GpuModel, ObjParser, Plane};
 
 use crate::{camera::GpuCamera, projection::GpuProjection};
@@ -55,7 +55,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(0.8, 0.2, 0.2),
     );
 
-    let light_idx: usize = cubes.add(
+    cubes.add(
         na::Matrix4::new_translation(&na::Vector3::new(12.0, 12.0, 0.0))
             * na::Matrix4::new_scaling(0.5),
         na::Vector3::new(1.0, 1.0, 1.0),
@@ -75,7 +75,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &gpu.device,
     )?;
 
-    let camera = GpuCamera::new(
+    let mut camera = GpuCamera::new(
         Camera::new(
             na::Point3::new(0.0, 18.0, 14.0),
             -45.0f32.to_radians(),
@@ -92,45 +92,30 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut smap_tex: wgpu::Texture;
     let pipeline_layout: wgpu::PipelineLayout;
     let render_pipeline: wgpu::RenderPipeline;
-    let proj_buf: wgpu::Buffer;
-    let camera_buf: wgpu::Buffer;
-    let light_model_mat_buf: wgpu::Buffer;
-    let smap_proj_buf: wgpu::Buffer;
-    let smap_cam_buf: wgpu::Buffer;
     let smap_sampler: wgpu::Sampler;
     let smap_bgl: wgpu::BindGroupLayout;
     let smap_bg: wgpu::BindGroup;
     let smap_pipeline_layout: wgpu::PipelineLayout;
     let smap_pipeline: wgpu::RenderPipeline;
 
+    let smap_projection = GpuProjection::new(
+        na::Matrix4::new_perspective(1.0, 90.0f32.to_radians(), 0.1, 100.0),
+        &gpu.device,
+    )?;
+
+    let mut smap_cam = GpuMat4::new(
+        na::Matrix4::look_at_rh(
+            &light_pos.into(),
+            &na::Point3::new(0.0, 0.0, 0.0),
+            &na::Vector3::y(),
+        ),
+        &gpu.device,
+    )?;
+
+    let mut light_model = GpuMat4::new(na::Matrix4::new_translation(&light_pos), &gpu.device)?;
+
     {
-        use wgpu::util::DeviceExt;
         let Gpu { ref device, .. } = gpu;
-
-        {
-            let mut buf = encase::UniformBuffer::new(vec![]);
-
-            buf.write(&na::Matrix4::look_at_rh(
-                &light_pos.into(),
-                &na::Point3::new(0.0, 0.0, 0.0),
-                &na::Vector3::y(),
-            ))?;
-            smap_cam_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: buf.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        }
-
-        {
-            let mut buf = encase::UniformBuffer::new(vec![]);
-            buf.write(&camera.look_at_matrix())?;
-            camera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: buf.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        }
 
         smap_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -158,28 +143,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             ],
         });
 
-        let mut buf = encase::UniformBuffer::new(vec![]);
-        buf.write(
-            &(OPENGL_TO_WGPU_MATRIX
-                * na::Matrix4::new_perspective(1.0, 90.0f32.to_radians(), 0.1, 100.0)),
-        )?;
-        smap_proj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: buf.into_inner().as_slice(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
         smap_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &smap_bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: smap_cam_buf.as_entire_binding(),
+                    resource: smap_cam.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: smap_proj_buf.as_entire_binding(),
+                    resource: smap_projection.buffer().as_entire_binding(),
                 },
             ],
         });
@@ -209,7 +183,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -219,7 +193,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -230,16 +204,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 5,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         multisampled: false,
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -248,9 +212,19 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 6,
+                    binding: 5,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -263,30 +237,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 8,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
             ],
         });
-
-        {
-            let light_model_mat = na::Matrix4::new_translation(&light_pos);
-            let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
-            light_model_mat_contents.write(&light_model_mat)?;
-
-            light_model_mat_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: light_model_mat_contents.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        }
 
         smap_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -324,41 +276,37 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: camera_buf.as_entire_binding(),
+                    resource: camera.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: proj_buf.as_entire_binding(),
+                    resource: projection.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: invproj_buf.as_entire_binding(),
+                    resource: camera.model_buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: invcamera_buf.as_entire_binding(),
+                    resource: light_model.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: light_model_mat_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
                     resource: wgpu::BindingResource::TextureView(
                         &smap_tex.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 6,
+                    binding: 5,
                     resource: wgpu::BindingResource::Sampler(&smap_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: smap_cam_buf.as_entire_binding(),
+                    binding: 6,
+                    resource: smap_cam.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: smap_proj_buf.as_entire_binding(),
+                    binding: 7,
+                    resource: smap_projection.buffer().as_entire_binding(),
                 },
             ],
         });
@@ -444,7 +392,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     }
 
     let window = &window;
-    let camera = &mut camera;
 
     let mut delta = Instant::now();
     let delta = &mut delta;
@@ -512,39 +459,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             .texture
                             .create_view(&wgpu::TextureViewDescriptor::default());
 
-                        {
-                            let mut buf = encase::UniformBuffer::new(vec![]);
-                            buf.write(&camera.look_at_matrix()).unwrap();
-                            queue.write_buffer(&camera_buf, 0, buf.into_inner().as_slice());
-                        }
-
-                        {
-                            let mut buf = encase::UniformBuffer::new(vec![]);
-                            let light_cam = na::Matrix4::look_at_rh(
-                                &light_pos.xyz().into(),
-                                &na::Point3::new(0.0, 0.0, 0.0),
-                                &na::Vector3::y(),
-                            );
-                            buf.write(&light_cam).unwrap();
-                            queue.write_buffer(&smap_cam_buf, 0, buf.into_inner().as_slice());
-                        }
-
-                        {
-                            let mut buf = encase::UniformBuffer::new(vec![]);
-                            buf.write(&camera.look_at_matrix().try_inverse().unwrap())
-                                .unwrap();
-                            queue.write_buffer(&invcamera_buf, 0, buf.into_inner().as_slice());
-                        }
-
-                        {
-                            let mut light_model_mat_contents = encase::UniformBuffer::new(vec![]);
-                            light_model_mat_contents.write(&light_model_mat).unwrap();
-                            queue.write_buffer(
-                                &light_model_mat_buf,
-                                0,
-                                light_model_mat_contents.into_inner().as_slice(),
-                            );
-                        }
+                        let light_cam = na::Matrix4::look_at_rh(
+                            &light_pos.xyz().into(),
+                            &na::Point3::new(0.0, 0.0, 0.0),
+                            &na::Vector3::y(),
+                        );
+                        smap_cam.update(queue, light_cam).unwrap();
+                        light_model.update(queue, light_model_mat).unwrap();
 
                         let mut encoder = device
                             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -622,32 +543,56 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         if event.state.is_pressed() {
                             match event.physical_key {
                                 PhysicalKey::Code(KeyCode::KeyA) => {
-                                    camera.strafe(-MOVE_DELTA);
+                                    camera
+                                        .update(&gpu.queue, |c| c.strafe(-MOVE_DELTA))
+                                        .unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::KeyD) => {
-                                    camera.strafe(MOVE_DELTA);
+                                    camera.update(&gpu.queue, |c| c.strafe(MOVE_DELTA)).unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::KeyQ) => {
-                                    camera.fly(MOVE_DELTA);
+                                    camera.update(&gpu.queue, |c| c.fly(MOVE_DELTA)).unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::KeyZ) => {
-                                    camera.fly(-MOVE_DELTA);
+                                    camera.update(&gpu.queue, |c| c.fly(-MOVE_DELTA)).unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::KeyW) => {
-                                    camera.forwards(MOVE_DELTA);
+                                    camera
+                                        .update(&gpu.queue, |c| c.forwards(MOVE_DELTA))
+                                        .unwrap();
                                 }
-                                PhysicalKey::Code(KeyCode::KeyS) => camera.forwards(-MOVE_DELTA),
+                                PhysicalKey::Code(KeyCode::KeyS) => {
+                                    camera
+                                        .update(&gpu.queue, |c| c.forwards(-MOVE_DELTA))
+                                        .unwrap();
+                                }
                                 PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                                    camera.tilt_horizontally(-TILT_DELTA.to_radians());
+                                    camera
+                                        .update(&gpu.queue, |c| {
+                                            c.tilt_horizontally(-TILT_DELTA.to_radians())
+                                        })
+                                        .unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::ArrowRight) => {
-                                    camera.tilt_horizontally(TILT_DELTA.to_radians());
+                                    camera
+                                        .update(&gpu.queue, |c| {
+                                            c.tilt_horizontally(TILT_DELTA.to_radians())
+                                        })
+                                        .unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::ArrowUp) => {
-                                    camera.tilt_vertically(TILT_DELTA.to_radians());
+                                    camera
+                                        .update(&gpu.queue, |c| {
+                                            c.tilt_vertically(TILT_DELTA.to_radians())
+                                        })
+                                        .unwrap();
                                 }
                                 PhysicalKey::Code(KeyCode::ArrowDown) => {
-                                    camera.tilt_vertically(-TILT_DELTA.to_radians());
+                                    camera
+                                        .update(&gpu.queue, |c| {
+                                            c.tilt_vertically(-TILT_DELTA.to_radians())
+                                        })
+                                        .unwrap();
                                 }
                                 _ => {}
                             }
