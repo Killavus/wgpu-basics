@@ -12,46 +12,18 @@ use std::time::Instant;
 mod camera;
 mod gpu;
 mod model;
+mod projection;
 mod world_model;
 
 use world_model::{GpuWorldModel, WorldModel};
 
-// OpenGL Normalized Coordinate System (right-handed):
-// x: [-1.0, 1.0]
-// y: [-1.0, 1.0]
-// z: [-1.0, 1.0]
-
-// WebGPU Normalized Coordinate System (left-handed):
-// x: [-1.0, 1.0]
-// y: [-1.0, 1.0]
-// z: [0.0, 1.0]
-
-// So we're basically scaling z by 0.5 (m33) so it becomes [-0.5, 0.5] and then translate by 0.5 (m34) so it becomes [0.0, 1.0] that WGPU expects.
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: na::Matrix4<f32> = na::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
-);
-
 const MOVE_DELTA: f32 = 0.25;
 const TILT_DELTA: f32 = 1.0;
 
-// Scale matrix:
-// [sx 0 0 0]
-// [0 sy 0 0]
-// [0 0 sz 0]
-// [0 0  0 1]
-
-// Translation matrix:
-// [1 0 0 tx]
-// [0 1 0 ty]
-// [0 0 1 tz]
-// [0 0 0 1]
-
 use gpu::Gpu;
 use model::{Cube, GpuModel, ObjParser, Plane};
+
+use crate::{camera::GpuCamera, projection::GpuProjection};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
@@ -64,30 +36,30 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut teapots = WorldModel::new(ObjParser::read_model("./models/teapot.obj")?);
 
     planes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
+        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
             * na::Matrix4::new_scaling(1000.0),
         na::Vector3::new(0.6, 0.6, 0.6),
     );
 
     teapots.add(
-        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, 0.0))
+        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
             * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
             * na::Matrix4::new_scaling(1.0),
         na::Vector3::new(0.5, 0.5, 1.0),
     );
 
     cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(4.0, 0.5, 0.0))
+        na::Matrix4::new_translation(&na::Vector3::new(4.0, 0.5, -2.0))
             * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
             * na::Matrix4::new_scaling(1.0),
         na::Vector3::new(0.8, 0.2, 0.2),
     );
 
-    // let light_idx: usize = cubes.add(
-    //     na::Matrix4::new_translation(&na::Vector3::new(6.0, 4.0, 0.0))
-    //         * na::Matrix4::new_scaling(0.5),
-    //     na::Vector3::new(1.0, 1.0, 1.0),
-    // );
+    let light_idx: usize = cubes.add(
+        na::Matrix4::new_translation(&na::Vector3::new(12.0, 12.0, 0.0))
+            * na::Matrix4::new_scaling(0.5),
+        na::Vector3::new(1.0, 1.0, 1.0),
+    );
 
     cubes.add(
         na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.5, -4.0)),
@@ -98,19 +70,21 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut planes = planes.into_gpu(&gpu.device);
     let mut teapots = teapots.into_gpu(&gpu.device);
 
-    // Projection matrices are flipping the Z coordinate in nalgebra, see: https://nalgebra.org/docs/user_guide/projections/
-    let projection = OPENGL_TO_WGPU_MATRIX
-        * na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
+    let projection = GpuProjection::new(
+        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0),
+        &gpu.device,
+    )?;
 
-    use wgpu::util::DeviceExt;
+    let camera = GpuCamera::new(
+        Camera::new(
+            na::Point3::new(0.0, 18.0, 14.0),
+            -45.0f32.to_radians(),
+            270.0f32.to_radians(),
+        ),
+        &gpu.device,
+    )?;
 
-    let mut camera: Camera = Camera::new(
-        na::Point3::new(0.0, 18.0, 14.0),
-        -45.0f32.to_radians(),
-        270.0f32.to_radians(),
-    );
-
-    let mut light_pos = na::Vector3::new(6.0, 4.0, 0.0);
+    let mut light_pos = na::Vector3::new(12.0, 12.0, 0.0);
 
     let mut scene_bg: wgpu::BindGroup;
     let scene_bgl: wgpu::BindGroupLayout;
@@ -120,9 +94,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let render_pipeline: wgpu::RenderPipeline;
     let proj_buf: wgpu::Buffer;
     let camera_buf: wgpu::Buffer;
-    let invproj_buf: wgpu::Buffer;
-    let invcamera_buf: wgpu::Buffer;
     let light_model_mat_buf: wgpu::Buffer;
+    let smap_proj_buf: wgpu::Buffer;
     let smap_cam_buf: wgpu::Buffer;
     let smap_sampler: wgpu::Sampler;
     let smap_bgl: wgpu::BindGroupLayout;
@@ -131,37 +104,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let smap_pipeline: wgpu::RenderPipeline;
 
     {
+        use wgpu::util::DeviceExt;
         let Gpu { ref device, .. } = gpu;
-
-        {
-            let mut buf = encase::UniformBuffer::new(vec![]);
-            buf.write(&(OPENGL_TO_WGPU_MATRIX * projection))?;
-            proj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: buf.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        }
-
-        {
-            let mut buf = encase::UniformBuffer::new(vec![]);
-            buf.write(&(OPENGL_TO_WGPU_MATRIX * projection).try_inverse().unwrap())?;
-            invproj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: buf.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        }
-
-        {
-            let mut buf = encase::UniformBuffer::new(vec![]);
-            buf.write(&camera.look_at_matrix().try_inverse().unwrap())?;
-            invcamera_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: buf.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        }
 
         {
             let mut buf = encase::UniformBuffer::new(vec![]);
@@ -214,6 +158,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             ],
         });
 
+        let mut buf = encase::UniformBuffer::new(vec![]);
+        buf.write(
+            &(OPENGL_TO_WGPU_MATRIX
+                * na::Matrix4::new_perspective(1.0, 90.0f32.to_radians(), 0.1, 100.0)),
+        )?;
+        smap_proj_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: buf.into_inner().as_slice(),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         smap_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &smap_bgl,
@@ -224,7 +179,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: proj_buf.as_entire_binding(),
+                    resource: smap_proj_buf.as_entire_binding(),
                 },
             ],
         });
@@ -308,6 +263,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -326,7 +291,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         smap_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: (1024.0 * gpu.aspect_ratio()) as u32,
+                width: 1024,
                 height: 1024,
                 depth_or_array_layers: 1,
             },
@@ -340,17 +305,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
         smap_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToBorder,
+            address_mode_v: wgpu::AddressMode::ClampToBorder,
+            address_mode_w: wgpu::AddressMode::ClampToBorder,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 100.0,
             compare: None,
             anisotropy_clamp: 1,
-            border_color: None,
+            border_color: Some(wgpu::SamplerBorderColor::OpaqueWhite),
         });
 
         scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -390,6 +355,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 wgpu::BindGroupEntry {
                     binding: 7,
                     resource: smap_cam_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: smap_proj_buf.as_entire_binding(),
                 },
             ],
         });
@@ -534,8 +503,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let light_rotation =
                             (((delta_t / (1.0 / 60.0)) as u64 % 360) as f32).to_radians();
 
-                        light_pos.x = light_rotation.cos() * 6.0;
-                        light_pos.z = light_rotation.sin() * 6.0;
+                        light_pos.x = light_rotation.cos() * 12.0;
+                        light_pos.z = light_rotation.sin() * 12.0;
                         let light_model_mat = na::Matrix4::new_translation(light_pos);
 
                         let frame = gpu.current_texture();
@@ -608,9 +577,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             planes.draw(&mut smappass);
                             teapots.draw(&mut smappass);
                         }
-                        queue.submit(Some(encoder.finish()));
-                        let mut encoder = device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
                         {
                             let depth_view =

@@ -7,7 +7,7 @@
 @group(0) @binding(5) var shadowMap: texture_depth_2d;
 @group(0) @binding(6) var shadowMapSampler: sampler;
 @group(0) @binding(7) var<uniform> lightCamera: mat4x4<f32>;
-
+@group(0) @binding(8) var<uniform> lightProjection: mat4x4<f32>;
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
     @location(1) normal_v: vec3<f32>,
@@ -40,7 +40,7 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
 
     var world_v = model * vec4<f32>(v.model_v, 1.0);
     var camera_v = projection * camera * world_v;
-    var light_v = projection * lightCamera * world_v;
+    var light_v = lightProjection * lightCamera * world_v;
 
     var out: VertexOutput;
     out.position = camera_v;
@@ -73,7 +73,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var currentDepth = in.l_pos.z / in.l_pos.w;
 
     var shadow = 0.0;
-    if currentDepth > closestDepth {
+    if lPosDivided.z <= 1.0 && currentDepth > closestDepth {
         shadow = 1.0;
     }
 
