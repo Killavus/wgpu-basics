@@ -12,6 +12,7 @@ pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
+    pub depth_tex: wgpu::Texture,
 }
 
 use winit::window::Window;
@@ -25,6 +26,20 @@ impl Gpu {
         self.surface_config.width = new_size.0;
         self.surface_config.height = new_size.1;
         self.surface.configure(&self.device, &self.surface_config);
+        self.depth_tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: new_size.0,
+                height: new_size.1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
     }
 
     pub fn viewport_size(&self) -> wgpu::Extent3d {
@@ -51,6 +66,11 @@ impl Gpu {
         self.surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture!")
+    }
+
+    pub fn depth_texture_view(&self) -> wgpu::TextureView {
+        self.depth_tex
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     pub fn shader_from_file(&self, path: impl AsRef<Path>) -> Result<wgpu::ShaderModule> {
@@ -101,6 +121,21 @@ async fn get_gpu(window: &Window) -> Result<Gpu> {
         view_formats: vec![],
     };
 
+    let depth_tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: surface_config.width,
+            height: surface_config.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+
     surface.configure(&device, &surface_config);
 
     Ok(Gpu {
@@ -110,6 +145,7 @@ async fn get_gpu(window: &Window) -> Result<Gpu> {
         device,
         queue,
         surface_config,
+        depth_tex,
     })
 }
 

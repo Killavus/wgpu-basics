@@ -1,12 +1,25 @@
+struct Light {
+    light_type: u32,
+    place: vec3<f32>,
+    color: vec3<f32>,
+    angle: f32,
+    casting_shadows: u32,
+};
+
+struct Lights {
+    length: u32,
+    lights: array<Light>,
+};
+
+const LIGHT_POINT: u32 = u32(0);
+const LIGHT_DIRECTIONAL: u32 = u32(1);
+const LIGHT_SPOT: u32 = u32(2);
 
 @group(0) @binding(0) var<uniform> camera: mat4x4<f32>;
-@group(0) @binding(1) var<uniform> projection: mat4x4<f32>;
-@group(0) @binding(2) var<uniform> camera_model: mat4x4<f32>;
-@group(0) @binding(3) var<uniform> light: mat4x4<f32>;
-@group(0) @binding(4) var shadowMap: texture_depth_2d;
-@group(0) @binding(5) var shadowMapSampler: sampler;
-@group(0) @binding(6) var<uniform> lightCamera: mat4x4<f32>;
-@group(0) @binding(7) var<uniform> lightProjection: mat4x4<f32>;
+@group(0) @binding(1) var<uniform> camera_model: mat4x4<f32>;
+@group(0) @binding(2) var<uniform> projection: mat4x4<f32>;
+@group(0) @binding(3) var<storage, read> lights: Lights;
+
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
     @location(1) normal_v: vec3<f32>,
@@ -39,13 +52,11 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
 
     var world_v = model * vec4<f32>(v.model_v, 1.0);
     var camera_v = projection * camera * world_v;
-    var light_v = lightProjection * lightCamera * world_v;
 
     var out: VertexOutput;
     out.position = camera_v;
     out.normal = normalize(inv_model_t * vec4(v.normal_v, 0.0));
     out.w_pos = world_v;
-    out.l_pos = light_v;
     out.albedo = i.albedo;
 
     return out;
@@ -56,33 +67,29 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
 
-    var ambientStrength = 0.1;
-    var ambient = ambientStrength * lightColor;
+    var color = vec3(0.0, 0.0, 0.0);
+    for (var i = 0; u32(i) < lights.length; i = i + 1) {
+        var lightPos = lights.lights[i].place;
+        var lightColor = lights.lights[i].color;
 
-    var lightPos = vec4(light[3].xyz, 0.0);
+        var diffuseStrength = 0.5;
+        var lightDir = normalize(lightPos - in.w_pos.xyz);
 
-    var diffuseStrength = 0.5;
-    var lightDir = normalize(lightPos - in.w_pos);
-    var diffuseCoeff = max(dot(in.normal, lightDir), 0.0);
-    var diffuse = diffuseStrength * diffuseCoeff * lightColor;
+        var ambientStrength = 0.1;
+        var ambient = ambientStrength * lightColor;
 
-    var lPosDivided = in.l_pos.xyz / in.l_pos.w;
-    var smapCoords = lPosDivided.xy * 0.5 + 0.5;
-    var closestDepth = textureSample(shadowMap, shadowMapSampler, smapCoords);
-    var currentDepth = in.l_pos.z / in.l_pos.w;
+        var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
+        var diffuse = diffuseStrength * diffuseCoeff * lightColor;
 
-    var shadow = 0.0;
-    if lPosDivided.z <= 1.0 && currentDepth > closestDepth {
-        shadow = 1.0;
+        var specularStrength = 0.4;
+        var viewPos = camera_model[3].xyz;
+        var viewDir = normalize(viewPos - in.w_pos.xyz);
+        var reflectDir = reflect(-lightDir, in.normal.xyz);
+        var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+        var specular = specularStrength * specularCoeff * lightColor;
+
+        color += ambient + diffuse + specular;
     }
 
-
-    var specularStrength = 0.4;
-    var viewPos = vec4(camera_model[3].xyz, 0.0);
-    var viewDir = normalize(viewPos - in.w_pos);
-    var reflectDir = reflect(-lightDir, in.normal);
-    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
-    var specular = specularStrength * specularCoeff * lightColor;
-
-    return vec4(ambient + (1.0 - shadow) * (diffuse + specular), 1.0) * vec4(in.albedo, 1.0);
+    return vec4(color, 1.0) * vec4(in.albedo, 1.0);
 }

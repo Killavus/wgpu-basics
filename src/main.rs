@@ -12,16 +12,19 @@ use std::time::Instant;
 mod camera;
 mod gpu;
 mod model;
+mod phong_pass;
 mod projection;
 mod world_model;
 
-use world_model::{GpuWorldModel, WorldModel};
+use phong_pass::{Light, PhongPass};
+
+use world_model::WorldModel;
 
 const MOVE_DELTA: f32 = 0.25;
 const TILT_DELTA: f32 = 1.0;
 
-use gpu::{Gpu, GpuMat4};
-use model::{Cube, GpuModel, ObjParser, Plane};
+use gpu::Gpu;
+use model::{Cube, ObjParser, Plane};
 
 use crate::{camera::GpuCamera, projection::GpuProjection};
 
@@ -84,326 +87,23 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &gpu.device,
     )?;
 
-    let mut light_pos = na::Vector3::new(12.0, 12.0, 0.0);
+    let mut lights = Vec::new();
+    lights.push(Light::new_point(
+        na::Vector3::new(12.0, 12.0, 2.0),
+        na::Vector3::new(1.0, 1.0, 1.0),
+    ));
 
-    let mut scene_bg: wgpu::BindGroup;
-    let scene_bgl: wgpu::BindGroupLayout;
-    let mut depth_tex: wgpu::Texture;
-    let mut smap_tex: wgpu::Texture;
-    let pipeline_layout: wgpu::PipelineLayout;
-    let render_pipeline: wgpu::RenderPipeline;
-    let smap_sampler: wgpu::Sampler;
-    let smap_bgl: wgpu::BindGroupLayout;
-    let smap_bg: wgpu::BindGroup;
-    let smap_pipeline_layout: wgpu::PipelineLayout;
-    let smap_pipeline: wgpu::RenderPipeline;
-
-    let smap_projection = GpuProjection::new(
-        na::Matrix4::new_perspective(1.0, 90.0f32.to_radians(), 0.1, 100.0),
-        &gpu.device,
-    )?;
-
-    let mut smap_cam = GpuMat4::new(
-        na::Matrix4::look_at_rh(
-            &light_pos.into(),
-            &na::Point3::new(0.0, 0.0, 0.0),
-            &na::Vector3::y(),
-        ),
-        &gpu.device,
-    )?;
-
-    let mut light_model = GpuMat4::new(na::Matrix4::new_translation(&light_pos), &gpu.device)?;
-
-    {
-        let Gpu { ref device, .. } = gpu;
-
-        smap_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        smap_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &smap_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: smap_cam.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: smap_projection.buffer().as_entire_binding(),
-                },
-            ],
-        });
-
-        scene_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Depth,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 5,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 7,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        smap_tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: 1024,
-                height: 1024,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        smap_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: None,
-            address_mode_u: wgpu::AddressMode::ClampToBorder,
-            address_mode_v: wgpu::AddressMode::ClampToBorder,
-            address_mode_w: wgpu::AddressMode::ClampToBorder,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            lod_min_clamp: 0.0,
-            lod_max_clamp: 100.0,
-            compare: None,
-            anisotropy_clamp: 1,
-            border_color: Some(wgpu::SamplerBorderColor::OpaqueWhite),
-        });
-
-        scene_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &scene_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: projection.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: camera.model_buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: light_model.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(
-                        &smap_tex.create_view(&wgpu::TextureViewDescriptor::default()),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&smap_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: smap_cam.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: smap_projection.buffer().as_entire_binding(),
-                },
-            ],
-        });
-
-        pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&scene_bgl],
-            push_constant_ranges: &[],
-        });
-
-        smap_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&smap_bgl],
-            push_constant_ranges: &[],
-        });
-
-        render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(gpu.swapchain_format().into())],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        depth_tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: None,
-            size: gpu.viewport_size(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-
-        smap_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&smap_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &smap_shader,
-                entry_point: "vs_main",
-                buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
-            },
-            fragment: None,
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-    }
-
+    let phong_pass = PhongPass::new(&gpu, &camera, &projection, &lights)?;
     let window = &window;
 
     let mut delta = Instant::now();
     let delta = &mut delta;
 
-    let cubes = &mut cubes;
-    let planes = &mut planes;
-    let teapots = &mut teapots;
+    let cubes = &cubes;
+    let planes = &planes;
+    let teapots = &teapots;
 
     let gpu = &mut gpu;
-    let smap_tex = &mut smap_tex;
-    let scene_bg = &mut scene_bg;
-    let light_pos = &mut light_pos;
 
     event_loop
         .run(move |event, target| {
@@ -417,126 +117,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     WindowEvent::Resized(new_size) => {
                         // Reconfigure the surface with the new size
                         gpu.on_resize((new_size.width, new_size.height));
-                        depth_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                            label: None,
-                            size: wgpu::Extent3d {
-                                width: new_size.width,
-                                height: new_size.height,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: wgpu::TextureFormat::Depth32Float,
-                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                            view_formats: &[],
-                        });
-
-                        // On macos the window needs to be redrawn manually after resizing
                         window.request_redraw();
                     }
                     WindowEvent::CloseRequested => {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        let Gpu {
-                            ref device,
-                            ref queue,
-                            ..
-                        } = gpu;
-
-                        let delta_t = delta.elapsed().as_secs_f32();
-
-                        let light_rotation =
-                            (((delta_t / (1.0 / 60.0)) as u64 % 360) as f32).to_radians();
-
-                        light_pos.x = light_rotation.cos() * 12.0;
-                        light_pos.z = light_rotation.sin() * 12.0;
-                        let light_model_mat = na::Matrix4::new_translation(light_pos);
-
-                        let frame = gpu.current_texture();
-                        let view = frame
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor::default());
-
-                        let light_cam = na::Matrix4::look_at_rh(
-                            &light_pos.xyz().into(),
-                            &na::Point3::new(0.0, 0.0, 0.0),
-                            &na::Vector3::y(),
-                        );
-                        smap_cam.update(queue, light_cam).unwrap();
-                        light_model.update(queue, light_model_mat).unwrap();
-
-                        let mut encoder = device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-                        {
-                            let smap_view =
-                                smap_tex.create_view(&wgpu::TextureViewDescriptor::default());
-
-                            let mut smappass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: None,
-                                    color_attachments: &[],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &smap_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Clear(1.0),
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                            stencil_ops: None,
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-
-                            smappass.set_pipeline(&smap_pipeline);
-                            smappass.set_bind_group(0, &smap_bg, &[]);
-
-                            cubes.draw(&mut smappass);
-                            planes.draw(&mut smappass);
-                            teapots.draw(&mut smappass);
-                        }
-
-                        {
-                            let depth_view =
-                                depth_tex.create_view(&wgpu::TextureViewDescriptor::default());
-
-                            let mut rpass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: None,
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
-                                    depth_stencil_attachment: Some(
-                                        wgpu::RenderPassDepthStencilAttachment {
-                                            view: &depth_view,
-                                            depth_ops: Some(wgpu::Operations {
-                                                load: wgpu::LoadOp::Clear(1.0),
-                                                store: wgpu::StoreOp::Store,
-                                            }),
-                                            stencil_ops: None,
-                                        },
-                                    ),
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-                            rpass.set_pipeline(&render_pipeline);
-                            rpass.set_bind_group(0, scene_bg, &[]);
-
-                            cubes.draw(&mut rpass);
-                            planes.draw(&mut rpass);
-                            teapots.draw(&mut rpass);
-                        }
-
-                        queue.submit(Some(encoder.finish()));
-                        frame.present();
+                        phong_pass.render(gpu, &[cubes, planes, teapots]);
                         window.request_redraw();
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
