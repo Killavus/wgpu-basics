@@ -2,6 +2,7 @@ use anyhow::Result;
 use image::EncodableLayout;
 use nalgebra as na;
 
+use skybox_pass::SkyboxPass;
 use winit::{
     event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window, window::WindowBuilder,
 };
@@ -15,6 +16,7 @@ mod gpu;
 mod model;
 mod phong_pass;
 mod projection;
+mod skybox_pass;
 mod world_model;
 
 use phong_pass::{Light, PhongPass};
@@ -65,7 +67,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         size: skybox_size,
         mip_level_count: 1,
         sample_count: 1,
-        dimension: wgpu::TextureDimension::D3,
+        dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
@@ -82,11 +84,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         skybox_size,
     );
 
-    let skybox_tex_view: wgpu::TextureView = skybox_tex.create_view(&wgpu::TextureViewDescriptor {
-        dimension: Some(wgpu::TextureViewDimension::Cube),
-        ..Default::default()
-    });
-
     let skybox_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
         label: None,
         address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -98,11 +95,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         ..Default::default()
     });
 
-    planes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
-            * na::Matrix4::new_scaling(1000.0),
-        na::Vector3::new(0.6, 0.6, 0.6),
-    );
+    // planes.add(
+    //     na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
+    //         * na::Matrix4::new_scaling(1000.0),
+    //     na::Vector3::new(0.6, 0.6, 0.6),
+    // );
 
     teapots.add(
         na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
@@ -154,7 +151,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     ));
 
     let phong_pass = PhongPass::new(&gpu, &camera, &projection, &lights)?;
-    let window = &window;
+    let skybox_pass = SkyboxPass::new(&gpu, &projection, &camera, skybox_tex, skybox_sampler)?;
+
+    let window: &Window = &window;
 
     let mut delta = Instant::now();
     let delta = &mut delta;
@@ -183,7 +182,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        phong_pass.render(gpu, &[cubes, planes, teapots]);
+                        let frame = phong_pass.render(gpu, &[cubes, planes, teapots]);
+                        let frame = skybox_pass.render(gpu, frame);
+                        frame.present();
                         window.request_redraw();
                     }
                     WindowEvent::KeyboardInput { event, .. } => {

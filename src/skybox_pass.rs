@@ -1,113 +1,52 @@
 use crate::{
-    camera::GpuCamera, gpu::Gpu, model::GpuModel, projection::GpuProjection,
-    world_model::GpuWorldModel,
+    camera::GpuCamera,
+    gpu::Gpu,
+    model::{Cube, GpuModel},
+    projection::GpuProjection,
+    world_model::{GpuWorldModel, WorldModel},
 };
 use anyhow::Result;
-use encase::{ArrayLength, ShaderType, StorageBuffer};
 use nalgebra as na;
 
-pub struct PhongPass {
-    bg_layout: wgpu::BindGroupLayout,
+pub struct SkyboxPass {
     bg: wgpu::BindGroup,
-    light_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
-    pipeline_layout: wgpu::PipelineLayout,
-    shader: wgpu::ShaderModule,
+    bgl: wgpu::BindGroupLayout,
+    cube_model: GpuWorldModel,
+    skybox_tex: wgpu::Texture,
+    skybox_sampler: wgpu::Sampler,
 }
 
-#[derive(ShaderType, Clone, Copy)]
-pub struct Light {
-    light_type: u32,
-    position_direction: na::Vector3<f32>,
-    color: na::Vector3<f32>,
-    angle: f32,
-    casting_shadows: u32,
-}
+// Idea is like this:
+// 1. Render the scene (phong pass)
+// 2. Take camera, remove its translation.
+// 3. Render the skybox with depth test inverted.
 
-impl Light {
-    pub fn new_point(position: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
-        Self {
-            light_type: 0,
-            position_direction: position,
-            color,
-            angle: 0.0,
-            casting_shadows: 0,
-        }
-    }
-
-    pub fn new_directional(direction: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
-        Self {
-            light_type: 1,
-            position_direction: direction,
-            color,
-            angle: 0.0,
-            casting_shadows: 0,
-        }
-    }
-
-    pub fn new_spot(
-        position: na::Vector3<f32>,
-        direction: na::Vector3<f32>,
-        color: na::Vector3<f32>,
-        angle: f32,
-    ) -> Self {
-        Self {
-            light_type: 2,
-            position_direction: position,
-            color,
-            angle,
-            casting_shadows: 0,
-        }
-    }
-
-    pub fn toggle_shadow_casting(&mut self) {
-        self.casting_shadows = 1;
-    }
-}
-
-#[derive(ShaderType)]
-struct GpuLights {
-    size: ArrayLength,
-    #[size(runtime)]
-    lights: Vec<Light>,
-}
-
-impl PhongPass {
+impl SkyboxPass {
     pub fn new(
         gpu: &Gpu,
-        camera: &GpuCamera,
         projection: &GpuProjection,
-        lights: &[Light],
+        camera: &GpuCamera,
+        skybox_tex: wgpu::Texture,
+        skybox_sampler: wgpu::Sampler,
     ) -> Result<Self> {
-        use wgpu::util::DeviceExt;
+        let mut cube_model = WorldModel::new(Cube::new().model());
+        cube_model.add(na::Matrix4::identity(), na::Vector3::zeros());
+        let cube_model = cube_model.into_gpu(&gpu.device);
 
-        let gpu_lights = GpuLights {
-            size: ArrayLength,
-            lights: lights.to_vec(),
-        };
+        let tex_view = skybox_tex.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
 
-        let gpu_lights_size: u64 = gpu_lights.size().into();
-        let mut light_contents = StorageBuffer::new(Vec::with_capacity(gpu_lights_size as usize));
-        light_contents.write(&gpu_lights)?;
-
-        let light_buf = gpu
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: light_contents.into_inner().as_slice(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-
-        let shader = gpu.shader_from_file("./shaders/phong.wgsl")?;
-
-        let bg_layout = gpu
+        let bgl = gpu
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
@@ -117,16 +56,6 @@ impl PhongPass {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
@@ -136,13 +65,19 @@ impl PhongPass {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                 ],
@@ -150,7 +85,7 @@ impl PhongPass {
 
         let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
-            layout: &bg_layout,
+            layout: &bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -158,24 +93,26 @@ impl PhongPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: camera.model_buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: projection.buffer().as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                },
+                wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: light_buf.as_entire_binding(),
+                    resource: wgpu::BindingResource::Sampler(&skybox_sampler),
                 },
             ],
         });
 
-        let pipeline_layout = gpu
+        let shader = gpu.shader_from_file("./shaders/skybox.wgsl")?;
+
+        let pipelinel = gpu
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bg_layout],
+                bind_group_layouts: &[&bgl],
                 push_constant_ranges: &[],
             });
 
@@ -183,50 +120,47 @@ impl PhongPass {
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: Some(&pipeline_layout),
+                layout: Some(&pipelinel),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
                     buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
                 },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(gpu.swapchain_format().into())],
-                }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(gpu.swapchain_format().into())],
+                }),
                 multiview: None,
             });
 
         Ok(Self {
-            bg_layout,
             bg,
-            light_buf,
             pipeline,
-            pipeline_layout,
-            shader,
+            bgl,
+            cube_model,
+            skybox_tex,
+            skybox_sampler,
         })
     }
 
-    pub fn render(&self, gpu: &Gpu, world_models: &[&GpuWorldModel]) -> wgpu::SurfaceTexture {
+    pub fn render(&self, gpu: &Gpu, frame: wgpu::SurfaceTexture) -> wgpu::SurfaceTexture {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        let frame = gpu.current_texture();
         {
             let frame_view = frame
                 .texture
@@ -239,14 +173,14 @@ impl PhongPass {
                     view: &frame_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -258,9 +192,7 @@ impl PhongPass {
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.bg, &[]);
 
-            for model in world_models {
-                model.draw(&mut rpass);
-            }
+            self.cube_model.draw(&mut rpass);
         }
 
         gpu.queue.submit(Some(encoder.finish()));
