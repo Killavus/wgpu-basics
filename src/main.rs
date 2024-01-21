@@ -4,7 +4,8 @@ use nalgebra as na;
 
 use skybox_pass::SkyboxPass;
 use winit::{
-    event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window, window::WindowBuilder,
+    dpi::PhysicalPosition, event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window,
+    window::WindowBuilder,
 };
 
 use camera::Camera;
@@ -95,11 +96,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         ..Default::default()
     });
 
-    // planes.add(
-    //     na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
-    //         * na::Matrix4::new_scaling(1000.0),
-    //     na::Vector3::new(0.6, 0.6, 0.6),
-    // );
+    planes.add(
+        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
+            * na::Matrix4::new_scaling(1000.0),
+        na::Vector3::new(0.6, 0.6, 0.6),
+    );
 
     teapots.add(
         na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
@@ -164,6 +165,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let gpu = &mut gpu;
 
+    let mut dragging = false;
+    let mut drag_origin: Option<(f64, f64)> = None;
+
     event_loop
         .run(move |event, target| {
             use winit::keyboard::KeyCode;
@@ -186,6 +190,64 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let frame = skybox_pass.render(gpu, frame);
                         frame.present();
                         window.request_redraw();
+                    }
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        if state.is_pressed() {
+                            if let MouseButton::Left = button {
+                                window
+                                    .set_cursor_grab(winit::window::CursorGrabMode::Confined)
+                                    .ok();
+                                window.set_cursor_visible(false);
+                                dragging = true;
+                            }
+                        } else {
+                            window
+                                .set_cursor_grab(winit::window::CursorGrabMode::None)
+                                .ok();
+                            window.set_cursor_visible(true);
+                            dragging = false;
+                            drag_origin = None;
+                        }
+                    }
+                    WindowEvent::MouseWheel { delta, phase, .. } => {
+                        if let MouseScrollDelta::LineDelta(_, y) = delta {
+                            if phase == TouchPhase::Moved {
+                                camera.update(&gpu.queue, |c| c.forwards(y)).unwrap();
+                            }
+                        }
+                    }
+                    WindowEvent::CursorMoved { position, .. } => {
+                        if dragging {
+                            match drag_origin {
+                                Some(origin) => {
+                                    let full_size = window.inner_size();
+                                    let pos = (
+                                        (position.x + 1.0) / full_size.width as f64,
+                                        (position.y + 1.0) / full_size.height as f64,
+                                    );
+
+                                    let delta = (pos.0 - origin.0, pos.1 - origin.1);
+
+                                    camera
+                                        .update(&gpu.queue, |c| c.tilt_horizontally(delta.0 as f32))
+                                        .unwrap();
+                                    camera
+                                        .update(&gpu.queue, |c| c.tilt_vertically(-delta.1 as f32))
+                                        .unwrap();
+
+                                    drag_origin = Some(pos);
+                                }
+                                None => {
+                                    let full_size = window.inner_size();
+                                    let pos = (
+                                        (position.x + 1.0) / full_size.width as f64,
+                                        (position.y + 1.0) / full_size.height as f64,
+                                    );
+
+                                    drag_origin = Some(pos);
+                                }
+                            }
+                        }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
                         if event.state.is_pressed() {
