@@ -235,7 +235,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                         .update(&gpu.queue, |c| c.tilt_vertically(-delta.1 as f32))
                                         .unwrap();
 
-                                    drag_origin = Some(pos);
+                                    window
+                                        .set_cursor_position(PhysicalPosition::new(
+                                            origin.0 * full_size.width as f64,
+                                            origin.1 * full_size.height as f64,
+                                        ))
+                                        .ok();
                                 }
                                 None => {
                                     let full_size = window.inner_size();
