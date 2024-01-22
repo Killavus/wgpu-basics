@@ -1,75 +1,33 @@
 use crate::{
-    camera::GpuCamera, gpu::Gpu, model::GpuModel, projection::GpuProjection,
+    camera::GpuCamera,
+    gpu::Gpu,
+    light::{GpuLights, Light},
+    model::GpuModel,
+    projection::GpuProjection,
     world_model::GpuWorldModel,
 };
 use anyhow::Result;
-use encase::{ArrayLength, ShaderType, StorageBuffer};
-use nalgebra as na;
+use encase::{ArrayLength, ShaderSize, ShaderType, StorageBuffer, UniformBuffer};
 
 pub struct PhongPass {
-    bg_layout: wgpu::BindGroupLayout,
-    bg: wgpu::BindGroup,
+    pass_bgl: wgpu::BindGroupLayout,
+    pass_bg: wgpu::BindGroup,
+    settings_bgl: wgpu::BindGroupLayout,
+    settings_bg: wgpu::BindGroup,
     light_buf: wgpu::Buffer,
     pipeline: wgpu::RenderPipeline,
     pipeline_layout: wgpu::PipelineLayout,
     shader: wgpu::ShaderModule,
-}
-
-#[derive(ShaderType, Clone, Copy)]
-pub struct Light {
-    light_type: u32,
-    position_direction: na::Vector3<f32>,
-    color: na::Vector3<f32>,
-    angle: f32,
-    casting_shadows: u32,
-}
-
-impl Light {
-    pub fn new_point(position: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
-        Self {
-            light_type: 0,
-            position_direction: position,
-            color,
-            angle: 0.0,
-            casting_shadows: 0,
-        }
-    }
-
-    pub fn new_directional(direction: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
-        Self {
-            light_type: 1,
-            position_direction: direction,
-            color,
-            angle: 0.0,
-            casting_shadows: 0,
-        }
-    }
-
-    pub fn new_spot(
-        position: na::Vector3<f32>,
-        direction: na::Vector3<f32>,
-        color: na::Vector3<f32>,
-        angle: f32,
-    ) -> Self {
-        Self {
-            light_type: 2,
-            position_direction: position,
-            color,
-            angle,
-            casting_shadows: 0,
-        }
-    }
-
-    pub fn toggle_shadow_casting(&mut self) {
-        self.casting_shadows = 1;
-    }
+    settings: PhongSettings,
+    settings_buf: wgpu::Buffer,
 }
 
 #[derive(ShaderType)]
-struct GpuLights {
-    size: ArrayLength,
-    #[size(runtime)]
-    lights: Vec<Light>,
+pub struct PhongSettings {
+    pub ambient_strength: f32,
+    pub diffuse_strength: f32,
+    pub specular_strength: f32,
+    pub specular_coefficient: f32,
 }
 
 impl PhongPass {
@@ -78,6 +36,7 @@ impl PhongPass {
         camera: &GpuCamera,
         projection: &GpuProjection,
         lights: &[Light],
+        settings: PhongSettings,
     ) -> Result<Self> {
         use wgpu::util::DeviceExt;
 
@@ -96,6 +55,17 @@ impl PhongPass {
                 label: None,
                 contents: light_contents.into_inner().as_slice(),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let settings_size: u64 = PhongSettings::SHADER_SIZE.into();
+        let mut settings_contents = UniformBuffer::new(Vec::with_capacity(settings_size as usize));
+        settings_contents.write(&settings)?;
+        let settings_buf = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: settings_contents.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
         let shader = gpu.shader_from_file("./shaders/phong.wgsl")?;
@@ -171,11 +141,36 @@ impl PhongPass {
             ],
         });
 
+        let settings_bgl = gpu
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let settings_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &settings_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: settings_buf.as_entire_binding(),
+            }],
+        });
+
         let pipeline_layout = gpu
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bg_layout],
+                bind_group_layouts: &[&bg_layout, &settings_bgl],
                 push_constant_ranges: &[],
             });
 
@@ -212,12 +207,16 @@ impl PhongPass {
             });
 
         Ok(Self {
-            bg_layout,
-            bg,
+            pass_bgl: bg_layout,
+            pass_bg: bg,
             light_buf,
             pipeline,
             pipeline_layout,
             shader,
+            settings,
+            settings_buf,
+            settings_bgl,
+            settings_bg,
         })
     }
 
@@ -256,7 +255,8 @@ impl PhongPass {
             });
 
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.bg, &[]);
+            rpass.set_bind_group(0, &self.pass_bg, &[]);
+            rpass.set_bind_group(1, &self.settings_bg, &[]);
 
             for model in world_models {
                 model.draw(&mut rpass);

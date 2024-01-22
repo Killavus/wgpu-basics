@@ -45,6 +45,15 @@ struct VertexOutput {
     @location(3) albedo: vec3<f32>,
 };
 
+struct PhongSettings {
+    ambientStrength: f32,
+    diffuseStrength: f32,
+    specularStrength: f32,
+    specularCoeff: f32,
+};
+
+@group(1) @binding(0) var<uniform> settings: PhongSettings;
+
 @vertex
 fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     var model = mat4x4<f32>(i.model_c0, i.model_c1, i.model_c2, i.model_c3);
@@ -72,20 +81,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var lightPos = lights.lights[i].place;
         var lightColor = lights.lights[i].color;
 
-        var diffuseStrength = 0.5;
+        var diffuseStrength = settings.diffuseStrength;
         var lightDir = normalize(lightPos - in.w_pos.xyz);
 
-        var ambientStrength = 0.1;
+        var ambientStrength = settings.ambientStrength;
         var ambient = ambientStrength * lightColor;
 
         var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
         var diffuse = diffuseStrength * diffuseCoeff * lightColor;
 
-        var specularStrength = 0.4;
+        var specularStrength = settings.specularStrength;
         var viewPos = camera_model[3].xyz;
         var viewDir = normalize(viewPos - in.w_pos.xyz);
         var reflectDir = reflect(-lightDir, in.normal.xyz);
-        var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+        var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), settings.specularCoeff);
         var specular = specularStrength * specularCoeff * lightColor;
 
         color += ambient + diffuse + specular;

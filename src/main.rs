@@ -14,13 +14,15 @@ use std::time::Instant;
 
 mod camera;
 mod gpu;
+mod light;
 mod model;
 mod phong_pass;
 mod projection;
 mod skybox_pass;
 mod world_model;
 
-use phong_pass::{Light, PhongPass};
+use light::Light;
+use phong_pass::{PhongPass, PhongSettings};
 
 use world_model::WorldModel;
 
@@ -151,7 +153,18 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(1.0, 1.0, 1.0),
     ));
 
-    let phong_pass = PhongPass::new(&gpu, &camera, &projection, &lights)?;
+    let phong_pass = PhongPass::new(
+        &gpu,
+        &camera,
+        &projection,
+        &lights,
+        PhongSettings {
+            ambient_strength: 0.1,
+            diffuse_strength: 0.6,
+            specular_strength: 0.3,
+            specular_coefficient: 32.0,
+        },
+    )?;
     let skybox_pass = SkyboxPass::new(&gpu, &projection, &camera, skybox_tex, skybox_sampler)?;
 
     let window: &Window = &window;
