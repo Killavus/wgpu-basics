@@ -8,6 +8,7 @@ pub struct Light {
     color: na::Vector3<f32>,
     angle: f32,
     casting_shadows: u32,
+    attenuation: na::Vector3<f32>,
 }
 
 #[derive(ShaderType)]
@@ -18,13 +19,18 @@ pub struct GpuLights {
 }
 
 impl Light {
-    pub fn new_point(position: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
+    pub fn new_point(
+        position: na::Vector3<f32>,
+        color: na::Vector3<f32>,
+        attenuation: na::Vector3<f32>,
+    ) -> Self {
         Self {
             light_type: 0,
             position_direction: position,
             color,
             angle: 0.0,
             casting_shadows: 0,
+            attenuation,
         }
     }
 
@@ -35,6 +41,7 @@ impl Light {
             color,
             angle: 0.0,
             casting_shadows: 0,
+            attenuation: na::Vector3::zeros(),
         }
     }
 
@@ -43,6 +50,7 @@ impl Light {
         direction: na::Vector3<f32>,
         color: na::Vector3<f32>,
         angle: f32,
+        attenuation: na::Vector3<f32>,
     ) -> Self {
         Self {
             light_type: 2,
@@ -50,6 +58,7 @@ impl Light {
             color,
             angle,
             casting_shadows: 0,
+            attenuation,
         }
     }
 

@@ -4,6 +4,7 @@ struct Light {
     color: vec3<f32>,
     angle: f32,
     casting_shadows: u32,
+    attenuation: vec3<f32>,
 };
 
 struct Lights {
@@ -71,33 +72,49 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     return out;
 }
 
+fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
+    var ambientStrength = settings.ambientStrength;
+    var diffuseStrength = settings.diffuseStrength;
+    var specularStrength = settings.specularStrength;
+    var viewPos = camera_model[3].xyz;
+
+    var lightDir = vec3(0.0, 0.0, 0.0);
+    var color = vec3<f32>(0.0, 0.0, 0.0);
+
+    var attenuation = 1.0;
+    var lightDistance = 0.0;
+
+    if light.light_type == LIGHT_DIRECTIONAL {
+        lightDir = -light.place;
+    } else if light.light_type == LIGHT_POINT || light.light_type == LIGHT_SPOT {
+        lightDir = normalize(light.place - in.w_pos.xyz);
+        lightDistance = length(light.place - in.w_pos.xyz);
+
+        attenuation = 1.0 / (light.attenuation.x + light.attenuation.y * lightDistance + light.attenuation.z * lightDistance * lightDistance);
+    } else {
+        return vec3<f32>(0.0, 0.0, 0.0);
+    }
+
+    color += attenuation * ambientStrength * light.color;
+    var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
+    color += attenuation * diffuseCoeff * light.color;
+    var viewDir = normalize(viewPos - in.w_pos.xyz);
+    var reflectDir = reflect(-lightDir, in.normal.xyz);
+    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), settings.specularCoeff);
+    color += attenuation * specularStrength * specularCoeff * light.color;
+
+    return color;
+}
+
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
 
     var color = vec3(0.0, 0.0, 0.0);
+
     for (var i = 0; u32(i) < lights.length; i = i + 1) {
-        var lightPos = lights.lights[i].place;
-        var lightColor = lights.lights[i].color;
-
-        var diffuseStrength = settings.diffuseStrength;
-        var lightDir = normalize(lightPos - in.w_pos.xyz);
-
-        var ambientStrength = settings.ambientStrength;
-        var ambient = ambientStrength * lightColor;
-
-        var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
-        var diffuse = diffuseStrength * diffuseCoeff * lightColor;
-
-        var specularStrength = settings.specularStrength;
-        var viewPos = camera_model[3].xyz;
-        var viewDir = normalize(viewPos - in.w_pos.xyz);
-        var reflectDir = reflect(-lightDir, in.normal.xyz);
-        var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), settings.specularCoeff);
-        var specular = specularStrength * specularCoeff * lightColor;
-
-        color += ambient + diffuse + specular;
+        color += calculateLight(in, lights.lights[i]);
     }
 
     return vec4(color, 1.0) * vec4(in.albedo, 1.0);

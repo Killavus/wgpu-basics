@@ -150,6 +150,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut lights = Vec::new();
     lights.push(Light::new_point(
         na::Vector3::new(12.0, 12.0, 2.0),
+        na::Vector3::new(0.9, 0.43, 0.11),
+        na::Vector3::new(1.0, 0.045, 0.0075),
+    ));
+
+    lights.push(Light::new_directional(
+        na::Vector3::new(-0.5, -0.5, -0.5),
         na::Vector3::new(1.0, 1.0, 1.0),
     ));
 
@@ -159,9 +165,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &projection,
         &lights,
         PhongSettings {
-            ambient_strength: 0.1,
+            ambient_strength: 0.2,
             diffuse_strength: 0.6,
-            specular_strength: 0.3,
+            specular_strength: 0.2,
             specular_coefficient: 32.0,
         },
     )?;
