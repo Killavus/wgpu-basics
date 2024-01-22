@@ -4,7 +4,8 @@ use nalgebra as na;
 #[derive(ShaderType, Clone, Copy)]
 pub struct Light {
     light_type: u32,
-    position_direction: na::Vector3<f32>,
+    position: na::Vector3<f32>,
+    direction: na::Vector3<f32>,
     color: na::Vector3<f32>,
     angle: f32,
     casting_shadows: u32,
@@ -26,7 +27,8 @@ impl Light {
     ) -> Self {
         Self {
             light_type: 0,
-            position_direction: position,
+            position,
+            direction: na::Vector3::zeros(),
             color,
             angle: 0.0,
             casting_shadows: 0,
@@ -37,7 +39,8 @@ impl Light {
     pub fn new_directional(direction: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
         Self {
             light_type: 1,
-            position_direction: direction,
+            position: na::Vector3::zeros(),
+            direction,
             color,
             angle: 0.0,
             casting_shadows: 0,
@@ -54,7 +57,8 @@ impl Light {
     ) -> Self {
         Self {
             light_type: 2,
-            position_direction: position,
+            position,
+            direction,
             color,
             angle,
             casting_shadows: 0,

@@ -1,6 +1,7 @@
 struct Light {
     light_type: u32,
-    place: vec3<f32>,
+    position: vec3<f32>,
+    direction: vec3<f32>,
     color: vec3<f32>,
     angle: f32,
     casting_shadows: u32,
@@ -85,10 +86,10 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     var lightDistance = 0.0;
 
     if light.light_type == LIGHT_DIRECTIONAL {
-        lightDir = -light.place;
+        lightDir = -light.direction;
     } else if light.light_type == LIGHT_POINT || light.light_type == LIGHT_SPOT {
-        lightDir = normalize(light.place - in.w_pos.xyz);
-        lightDistance = length(light.place - in.w_pos.xyz);
+        lightDir = normalize(light.position - in.w_pos.xyz);
+        lightDistance = length(light.position - in.w_pos.xyz);
 
         attenuation = 1.0 / (light.attenuation.x + light.attenuation.y * lightDistance + light.attenuation.z * lightDistance * lightDistance);
     } else {
@@ -96,6 +97,17 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     }
 
     color += attenuation * ambientStrength * light.color;
+
+    if light.light_type == LIGHT_SPOT {
+        // This is a cosine between lightDir and spotDir.
+        var theta = dot(lightDir, normalize(-light.direction));
+        var epsilon = cos(light.angle);
+
+        if theta <= epsilon {
+            return color;
+        }
+    }
+
     var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
     color += attenuation * diffuseCoeff * light.color;
     var viewDir = normalize(viewPos - in.w_pos.xyz);

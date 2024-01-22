@@ -159,6 +159,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(1.0, 1.0, 1.0),
     ));
 
+    lights.push(Light::new_spot(
+        na::Vector3::new(0.0, 5.0, 0.0),
+        na::Vector3::new(0.0, -1.0, 0.0),
+        na::Vector3::new(0.0, 0.0, 1.0),
+        45.0f32.to_radians(),
+        na::Vector3::new(1.0, 0.045, 0.0075),
+    ));
+
     let phong_pass = PhongPass::new(
         &gpu,
         &camera,
