@@ -56,6 +56,11 @@ struct PhongSettings {
 
 @group(1) @binding(0) var<uniform> settings: PhongSettings;
 
+@group(2) @binding(0) var<uniform> light_view: mat4x4<f32>;
+@group(2) @binding(1) var<uniform> light_projection: mat4x4<f32>;
+@group(2) @binding(2) var smap_sampler: sampler;
+@group(2) @binding(3) var smap: texture_depth_2d;
+
 @vertex
 fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     var model = mat4x4<f32>(i.model_c0, i.model_c1, i.model_c2, i.model_c3);
@@ -68,6 +73,7 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     out.position = camera_v;
     out.normal = normalize(inv_model_t * vec4(v.normal_v, 0.0));
     out.w_pos = world_v;
+    out.l_pos = light_projection * light_view * world_v;
     out.albedo = i.albedo;
 
     return out;
@@ -98,6 +104,16 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
 
     color += attenuation * ambientStrength * light.color;
 
+    var shadow = 1.0;
+    var lightPos = (in.l_pos.xyz / in.l_pos.w);
+    var lightDepth = lightPos.z;
+
+    var shadowDepth = textureSample(smap, smap_sampler, (lightPos.xy * vec2(0.5, -0.5)) + 0.5);
+
+    if lightDepth < shadowDepth {
+        shadow = 0.0;
+    }
+
     if light.light_type == LIGHT_SPOT {
         // This is a cosine between lightDir and spotDir.
         var theta = dot(lightDir, normalize(-light.direction));
@@ -109,11 +125,11 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     }
 
     var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
-    color += attenuation * diffuseCoeff * light.color;
+    color += (1.0 - shadow) * attenuation * diffuseCoeff * light.color;
     var viewDir = normalize(viewPos - in.w_pos.xyz);
     var reflectDir = reflect(-lightDir, in.normal.xyz);
     var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), settings.specularCoeff);
-    color += attenuation * specularStrength * specularCoeff * light.color;
+    color += (1.0 - shadow) * attenuation * specularStrength * specularCoeff * light.color;
 
     return color;
 }

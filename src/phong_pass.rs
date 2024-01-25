@@ -36,6 +36,7 @@ impl PhongPass {
         camera: &GpuCamera,
         projection: &GpuProjection,
         lights: &[Light],
+        shadow_bgl: &wgpu::BindGroupLayout,
         settings: PhongSettings,
     ) -> Result<Self> {
         use wgpu::util::DeviceExt;
@@ -170,7 +171,7 @@ impl PhongPass {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bg_layout, &settings_bgl],
+                bind_group_layouts: &[&bg_layout, &settings_bgl, &shadow_bgl],
                 push_constant_ranges: &[],
             });
 
@@ -220,7 +221,12 @@ impl PhongPass {
         })
     }
 
-    pub fn render(&self, gpu: &Gpu, world_models: &[&GpuWorldModel]) -> wgpu::SurfaceTexture {
+    pub fn render(
+        &self,
+        gpu: &Gpu,
+        world_models: &[&GpuWorldModel],
+        shadow_bg: &wgpu::BindGroup,
+    ) -> wgpu::SurfaceTexture {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -257,6 +263,7 @@ impl PhongPass {
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.pass_bg, &[]);
             rpass.set_bind_group(1, &self.settings_bg, &[]);
+            rpass.set_bind_group(2, &shadow_bg, &[]);
 
             for model in world_models {
                 model.draw(&mut rpass);

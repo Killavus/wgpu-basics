@@ -1,15 +1,19 @@
 use encase::{ArrayLength, ShaderType};
 use nalgebra as na;
 
+pub const LIGHT_TYPE_POINT: u32 = 0;
+pub const LIGHT_TYPE_DIRECTIONAL: u32 = 1;
+pub const LIGHT_TYPE_SPOT: u32 = 2;
+
 #[derive(ShaderType, Clone, Copy)]
 pub struct Light {
-    light_type: u32,
-    position: na::Vector3<f32>,
-    direction: na::Vector3<f32>,
-    color: na::Vector3<f32>,
-    angle: f32,
-    casting_shadows: u32,
-    attenuation: na::Vector3<f32>,
+    pub light_type: u32,
+    pub position: na::Vector3<f32>,
+    pub direction: na::Vector3<f32>,
+    pub color: na::Vector3<f32>,
+    pub angle: f32,
+    pub casting_shadows: u32,
+    pub attenuation: na::Vector3<f32>,
 }
 
 #[derive(ShaderType)]
@@ -26,7 +30,7 @@ impl Light {
         attenuation: na::Vector3<f32>,
     ) -> Self {
         Self {
-            light_type: 0,
+            light_type: LIGHT_TYPE_POINT,
             position,
             direction: na::Vector3::zeros(),
             color,
@@ -38,7 +42,7 @@ impl Light {
 
     pub fn new_directional(direction: na::Vector3<f32>, color: na::Vector3<f32>) -> Self {
         Self {
-            light_type: 1,
+            light_type: LIGHT_TYPE_DIRECTIONAL,
             position: na::Vector3::zeros(),
             direction,
             color,
@@ -56,7 +60,7 @@ impl Light {
         attenuation: na::Vector3<f32>,
     ) -> Self {
         Self {
-            light_type: 2,
+            light_type: LIGHT_TYPE_SPOT,
             position,
             direction,
             color,

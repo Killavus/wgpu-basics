@@ -2,6 +2,7 @@ use anyhow::Result;
 use image::EncodableLayout;
 use nalgebra as na;
 
+use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
     dpi::PhysicalPosition, event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window,
@@ -18,6 +19,7 @@ mod light;
 mod model;
 mod phong_pass;
 mod projection;
+mod shadow_pass;
 mod skybox_pass;
 mod world_model;
 
@@ -133,10 +135,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut planes = planes.into_gpu(&gpu.device);
     let mut teapots = teapots.into_gpu(&gpu.device);
 
-    let projection = GpuProjection::new(
-        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0),
-        &gpu.device,
-    )?;
+    let projection_mat =
+        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
+    let projection = GpuProjection::new(projection_mat, &gpu.device)?;
 
     let mut camera = GpuCamera::new(
         Camera::new(
@@ -148,30 +149,32 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     )?;
 
     let mut lights = Vec::new();
-    lights.push(Light::new_point(
-        na::Vector3::new(12.0, 12.0, 2.0),
-        na::Vector3::new(0.9, 0.43, 0.11),
-        na::Vector3::new(1.0, 0.045, 0.0075),
-    ));
+    // lights.push(Light::new_point(
+    //     na::Vector3::new(12.0, 12.0, 2.0),
+    //     na::Vector3::new(0.9, 0.43, 0.11),
+    //     na::Vector3::new(1.0, 0.045, 0.0075),
+    // ));
 
     lights.push(Light::new_directional(
-        na::Vector3::new(-0.5, -0.5, -0.5),
+        na::Vector3::new(1.0, -0.3, 0.0).normalize(),
         na::Vector3::new(1.0, 1.0, 1.0),
     ));
 
-    lights.push(Light::new_spot(
-        na::Vector3::new(0.0, 5.0, 0.0),
-        na::Vector3::new(0.0, -1.0, 0.0),
-        na::Vector3::new(0.0, 0.0, 1.0),
-        45.0f32.to_radians(),
-        na::Vector3::new(1.0, 0.045, 0.0075),
-    ));
+    // lights.push(Light::new_spot(
+    //     na::Vector3::new(0.0, 5.0, 0.0),
+    //     na::Vector3::new(0.0, -1.0, 0.0),
+    //     na::Vector3::new(0.0, 0.0, 1.0),
+    //     45.0f32.to_radians(),
+    //     na::Vector3::new(1.0, 0.045, 0.0075),
+    // ));
 
+    let shadow_pass = DirectionalShadowPass::new(&gpu)?;
     let phong_pass = PhongPass::new(
         &gpu,
         &camera,
         &projection,
         &lights,
+        shadow_pass.out_bind_group_layout(),
         PhongSettings {
             ambient_strength: 0.2,
             diffuse_strength: 0.6,
@@ -179,6 +182,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             specular_coefficient: 32.0,
         },
     )?;
+
     let skybox_pass = SkyboxPass::new(&gpu, &projection, &camera, skybox_tex, skybox_sampler)?;
 
     let window: &Window = &window;
@@ -213,8 +217,18 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        let frame = phong_pass.render(gpu, &[cubes, planes, teapots]);
+                        let spass_bg = shadow_pass
+                            .render(
+                                gpu,
+                                &lights[0],
+                                &camera,
+                                &projection_mat,
+                                &[cubes, planes, teapots],
+                            )
+                            .unwrap();
+                        let frame = phong_pass.render(gpu, &[cubes, planes, teapots], spass_bg);
                         let frame = skybox_pass.render(gpu, frame);
+
                         frame.present();
                         window.request_redraw();
                     }
