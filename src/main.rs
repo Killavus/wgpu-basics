@@ -149,24 +149,25 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     )?;
 
     let mut lights = Vec::new();
-    // lights.push(Light::new_point(
-    //     na::Vector3::new(12.0, 12.0, 2.0),
-    //     na::Vector3::new(0.9, 0.43, 0.11),
-    //     na::Vector3::new(1.0, 0.045, 0.0075),
-    // ));
 
     lights.push(Light::new_directional(
         na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
         na::Vector3::new(1.0, 1.0, 1.0),
     ));
 
-    // lights.push(Light::new_spot(
-    //     na::Vector3::new(0.0, 5.0, 0.0),
-    //     na::Vector3::new(0.0, -1.0, 0.0),
-    //     na::Vector3::new(0.0, 0.0, 1.0),
-    //     45.0f32.to_radians(),
-    //     na::Vector3::new(1.0, 0.045, 0.0075),
-    // ));
+    lights.push(Light::new_point(
+        na::Vector3::new(12.0, 12.0, 2.0),
+        na::Vector3::new(0.9, 0.43, 0.11),
+        na::Vector3::new(1.0, 0.045, 0.0075),
+    ));
+
+    lights.push(Light::new_spot(
+        na::Vector3::new(0.0, 5.0, 0.0),
+        na::Vector3::new(0.0, -1.0, 0.0),
+        na::Vector3::new(0.0, 0.0, 1.0),
+        45.0f32.to_radians(),
+        na::Vector3::new(1.0, 0.045, 0.0075),
+    ));
 
     let shadow_pass = DirectionalShadowPass::new(&gpu)?;
     let phong_pass = PhongPass::new(
