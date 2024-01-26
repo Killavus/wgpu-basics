@@ -263,7 +263,7 @@ impl PhongPass {
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, &self.pass_bg, &[]);
             rpass.set_bind_group(1, &self.settings_bg, &[]);
-            rpass.set_bind_group(2, &shadow_bg, &[]);
+            rpass.set_bind_group(2, shadow_bg, &[]);
 
             for model in world_models {
                 model.draw(&mut rpass);

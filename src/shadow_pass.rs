@@ -21,7 +21,7 @@ pub struct DirectionalShadowPass {
     out_bgl: wgpu::BindGroupLayout,
 }
 
-const SHADOW_MAP_SIZE: (u32, u32) = (1024, 1024);
+const SHADOW_MAP_SIZE: (u32, u32) = (2048, 2048);
 
 fn calculate_frustum(
     view_mat: &na::Matrix4<f32>,
@@ -121,6 +121,7 @@ impl DirectionalShadowPass {
                 fragment: None,
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -288,14 +289,13 @@ impl DirectionalShadowPass {
 
         let frustum_center = near_plane_center + (far_plane_center - near_plane_center) / 2.0;
 
-        //let d = light.direction * (far_plane_center.z - near_plane_center.z);
+        let radius = (frustum[7] - frustum[0]).norm() / 2.0;
 
-        let smap_cam_mat: na::Matrix<f32, na::Const<4>, na::Const<4>, na::ArrayStorage<f32, 4, 4>> =
-            na::Matrix4::look_at_rh(
-                &na::Point3::new(-light.direction.x, -light.direction.y, -light.direction.z),
-                &na::Point3::new(0.0, 0.0, 0.0),
-                &na::Vector3::y(),
-            );
+        let smap_cam_mat = na::Matrix4::look_at_rh(
+            &(frustum_center - light.direction),
+            &frustum_center,
+            &na::Vector3::y(),
+        );
 
         let (mut xmin, mut xmax, mut ymin, mut ymax, mut zmin, mut zmax) = (
             std::f32::MAX,
@@ -316,11 +316,32 @@ impl DirectionalShadowPass {
             zmax = zmax.max(p.z);
         }
 
-        // Defined by AABB of the frustum.
-        let smap_proj_mat = wgpu_projection(na::Matrix4::new_orthographic(
-            xmin, xmax, ymin, ymax, zmin, zmax,
-        ));
+        let tex_per_unit = SHADOW_MAP_SIZE.0 as f32 / (radius * 2.0);
+        let scaling = na::Matrix4::new_scaling(tex_per_unit);
 
+        let temp_cam = na::Matrix4::look_at_rh(
+            &na::Point3::new(-light.direction.x, -light.direction.y, -light.direction.z),
+            &na::Point3::new(0.0, 0.0, 0.0),
+            &na::Vector3::y(),
+        ) * scaling;
+
+        let temp_cam_inv = temp_cam.try_inverse().unwrap();
+
+        let mut temp_fc = temp_cam.transform_point(&frustum_center);
+        temp_fc.x = temp_fc.x.floor();
+        temp_fc.y = temp_fc.y.floor();
+        temp_fc = temp_cam_inv.transform_point(&temp_fc);
+
+        let smap_cam_mat =
+            na::Matrix4::look_at_rh(&(temp_fc - light.direction), &temp_fc, &na::Vector3::y());
+
+        // Defined by AABB of the frustum.
+        // let smap_proj_mat = wgpu_projection(na::Matrix4::new_orthographic(
+        //     xmin, xmax, ymin, ymax, zmin, zmax,
+        // ));
+        let smap_proj_mat = wgpu_projection(na::Matrix4::new_orthographic(
+            -radius, radius, -radius, radius, -radius, radius,
+        ));
         gpu.queue.write_buffer(
             &self.view_mat_buf,
             0,

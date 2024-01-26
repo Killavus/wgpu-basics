@@ -114,7 +114,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     );
 
     cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(4.0, 0.5, -2.0))
+        na::Matrix4::new_translation(&na::Vector3::new(4.0, 4.5, -2.0))
             * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
             * na::Matrix4::new_scaling(1.0),
         na::Vector3::new(0.8, 0.2, 0.2),
@@ -156,7 +156,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     // ));
 
     lights.push(Light::new_directional(
-        na::Vector3::new(1.0, -0.3, 0.0).normalize(),
+        na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
         na::Vector3::new(1.0, 1.0, 1.0),
     ));
 

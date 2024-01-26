@@ -104,13 +104,32 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
 
     color += attenuation * ambientStrength * light.color;
 
-    var shadow = 1.0;
+    var shadow = 0.0;
     var lightPos = (in.l_pos.xyz / in.l_pos.w);
     var lightDepth = lightPos.z;
 
-    var shadowDepth = textureSample(smap, smap_sampler, (lightPos.xy * vec2(0.5, -0.5)) + 0.5);
+    var texSize = textureDimensions(smap).xy;
 
-    if lightDepth < shadowDepth {
+    var texelSize = vec2(1.0 / f32(texSize.x), 1.0 / f32(texSize.y));
+
+    var texX = 1.0 / f32(texSize.x);
+    var texY = 1.0 / f32(texSize.y);
+    var bias = max(0.01 * (1.0 - dot(in.normal.xyz, lightDir)), 0.001);
+
+    var texelPos = lightPos.xy;
+
+    // Percentage Closer Filtering with 3x3.
+    for (var x = -1; x <= 1; x += 1) {
+        for (var y = -1; y <= 1; y += 1) {
+            var shadowDepth = textureSample(smap, smap_sampler, (texelPos + vec2(f32(x), f32(y)) * texelSize) * vec2(0.5, -0.5) + 0.5);
+            if (lightDepth - bias) > shadowDepth {
+                shadow += 1.0;
+            }
+        }
+    }
+    shadow /= 9.0;
+
+    if lightDepth > 1.0 {
         shadow = 0.0;
     }
 
