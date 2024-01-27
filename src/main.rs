@@ -11,8 +11,6 @@ use winit::{
 
 use camera::Camera;
 
-use std::time::Instant;
-
 mod camera;
 mod gpu;
 mod light;
@@ -34,10 +32,7 @@ const TILT_DELTA: f32 = 1.0;
 use gpu::Gpu;
 use model::{Cube, ObjParser, Plane};
 
-use crate::{
-    camera::GpuCamera,
-    projection::{wgpu_projection, GpuProjection},
-};
+use crate::{camera::GpuCamera, projection::GpuProjection};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
@@ -116,6 +111,20 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(0.5, 0.5, 1.0),
     );
 
+    teapots.add(
+        na::Matrix4::new_translation(&na::Vector3::new(-2.0, 0.0, -10.0))
+            * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+            * na::Matrix4::new_scaling(1.0),
+        na::Vector3::new(0.5, 0.5, 1.0),
+    );
+
+    teapots.add(
+        na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.0, -22.0))
+            * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+            * na::Matrix4::new_scaling(1.0),
+        na::Vector3::new(0.5, 0.5, 1.0),
+    );
+
     cubes.add(
         na::Matrix4::new_translation(&na::Vector3::new(4.0, 4.5, -2.0))
             * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
@@ -134,23 +143,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(0.2, 0.8, 0.4),
     );
 
-    let mut cubes = cubes.into_gpu(&gpu.device);
-    let mut planes = planes.into_gpu(&gpu.device);
-    let mut teapots = teapots.into_gpu(&gpu.device);
+    let cubes = cubes.into_gpu(&gpu.device);
+    let planes = planes.into_gpu(&gpu.device);
+    let teapots = teapots.into_gpu(&gpu.device);
 
-    let projection_mat = wgpu_projection(na::Matrix4::new_perspective(
-        gpu.aspect_ratio(),
-        45.0f32.to_radians(),
-        0.1,
-        100.0,
-    ));
-
-    println!("{}", projection_mat);
-
-    let ratio: f32 = (projection_mat[(2, 2)] + 1.0) / (projection_mat[(2, 2)] - 1.0);
-    let zfar: f32 = -(projection_mat[(2, 3)] / (ratio * 2.0) - projection_mat[(2, 3)] / 2.0);
-    let znear = (projection_mat[(2, 3)] * ratio / 2.0 - projection_mat[(2, 3)] / 2.0) * 2.0;
-    println!("{} {}", znear, zfar);
+    let projection_mat =
+        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
 
     let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
 
@@ -163,26 +161,24 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &gpu.device,
     )?;
 
-    let mut lights = Vec::new();
-
-    lights.push(Light::new_directional(
-        na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
-        na::Vector3::new(1.0, 1.0, 1.0),
-    ));
-
-    lights.push(Light::new_point(
-        na::Vector3::new(12.0, 12.0, 2.0),
-        na::Vector3::new(0.9, 0.43, 0.11),
-        na::Vector3::new(1.0, 0.045, 0.0075),
-    ));
-
-    lights.push(Light::new_spot(
-        na::Vector3::new(0.0, 5.0, 0.0),
-        na::Vector3::new(0.0, -1.0, 0.0),
-        na::Vector3::new(0.0, 0.0, 1.0),
-        45.0f32.to_radians(),
-        na::Vector3::new(1.0, 0.045, 0.0075),
-    ));
+    let lights = vec![
+        Light::new_directional(
+            na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
+            na::Vector3::new(1.0, 1.0, 1.0),
+        ),
+        // Light::new_point(
+        //     na::Vector3::new(12.0, 12.0, 2.0),
+        //     na::Vector3::new(0.9, 0.43, 0.11),
+        //     na::Vector3::new(1.0, 0.045, 0.0075),
+        // ),
+        // Light::new_spot(
+        //     na::Vector3::new(0.0, 5.0, 0.0),
+        //     na::Vector3::new(0.0, -1.0, 0.0),
+        //     na::Vector3::new(0.0, 0.0, 1.0),
+        //     45.0f32.to_radians(),
+        //     na::Vector3::new(1.0, 0.045, 0.0075),
+        // )
+    ];
 
     let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.1, 0.3, 1.0])?;
     let phong_pass = PhongPass::new(
@@ -203,8 +199,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let window: &Window = &window;
 
-    let mut delta = Instant::now();
-    let delta = &mut delta;
+    // let mut delta = Instant::now();
+    // let delta = &mut delta;
 
     let cubes = &cubes;
     let planes = &planes;
@@ -266,11 +262,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             drag_origin = None;
                         }
                     }
-                    WindowEvent::MouseWheel { delta, phase, .. } => {
-                        if let MouseScrollDelta::LineDelta(_, y) = delta {
-                            if phase == TouchPhase::Moved {
-                                camera.update(&gpu.queue, |c| c.forwards(y)).unwrap();
-                            }
+                    WindowEvent::MouseWheel {
+                        delta: MouseScrollDelta::LineDelta(_, y),
+                        phase,
+                        ..
+                    } => {
+                        if phase == TouchPhase::Moved {
+                            camera.update(&gpu.queue, |c| c.forwards(y)).unwrap();
                         }
                     }
                     WindowEvent::CursorMoved { position, .. } => {

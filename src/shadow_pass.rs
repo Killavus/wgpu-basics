@@ -320,7 +320,7 @@ impl DirectionalShadowPass {
 
         let frustum_center = near_plane_center + (far_plane_center - near_plane_center) / 2.0;
 
-        let radius = ((frustum[7] - frustum[0]).norm() / 2.0);
+        let radius = (frustum[7] - frustum[0]).norm() / 2.0;
 
         let tex_per_unit = SHADOW_MAP_SIZE.0 as f32 / (radius * 2.0);
         let scaling = na::Matrix4::new_scaling(tex_per_unit);

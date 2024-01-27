@@ -83,6 +83,7 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     return out;
 }
 
+
 fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     var zRatio: f32 = (projection[2].z + 1.0) / (projection[2].z - 1.0);
     var zNear: f32 = (projection[3].z * (zRatio / 2.0) - projection[3].z / 2.0) * 2.0;
@@ -152,7 +153,6 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
             shadow = 0.0;
         }
     }
-
 
     if light.light_type == LIGHT_SPOT {
         // This is a cosine between lightDir and spotDir.
