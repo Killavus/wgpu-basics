@@ -1,15 +1,11 @@
 use std::num::{NonZeroU32, NonZeroU64};
 
 use anyhow::Result;
-use encase::ShaderSize;
+use encase::{ShaderSize, ShaderType, UniformBuffer};
 use nalgebra as na;
 
 use crate::{
-    camera::GpuCamera,
-    gpu::Gpu,
-    light::{Light, LIGHT_TYPE_DIRECTIONAL},
-    model::GpuModel,
-    projection::wgpu_projection,
+    camera::GpuCamera, gpu::Gpu, light::Light, model::GpuModel, projection::wgpu_projection,
     world_model::GpuWorldModel,
 };
 
@@ -27,6 +23,13 @@ pub struct DirectionalShadowPass {
 const MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT: u64 = 256;
 
 const SHADOW_MAP_SIZE: (u32, u32) = (2048, 2048);
+
+#[derive(ShaderType)]
+struct ShadowMapResult {
+    num_splits: u32,
+    #[align(16)]
+    split_distances: [na::Vector4<f32>; 16],
+}
 
 fn calculate_frustum(
     view_mat: &na::Matrix4<f32>,
@@ -90,7 +93,11 @@ fn split_frustum(
 }
 
 impl DirectionalShadowPass {
-    pub fn new(gpu: &Gpu, splits: Vec<f32>) -> Result<Self> {
+    pub fn new(gpu: &Gpu, splits: Vec<f32>, projection_mat: &na::Matrix4<f32>) -> Result<Self> {
+        if splits.len() > 16 {
+            anyhow::bail!("too many splits");
+        }
+
         let depth_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -251,7 +258,48 @@ impl DirectionalShadowPass {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
+            });
+
+        let near_far_ratio = (projection_mat[(2, 2)] + 1.0) / (projection_mat[(2, 2)] - 1.0);
+        let z_near =
+            (projection_mat[(2, 3)] * (near_far_ratio / 2.0) - projection_mat[(2, 3)] / 2.0) * 2.0;
+        let z_far =
+            -(projection_mat[(2, 3)] / (near_far_ratio * 2.0)) - projection_mat[(2, 3)] / 2.0;
+        let z_diff = z_far - z_near;
+
+        let mut spass_config = ShadowMapResult {
+            num_splits: splits.len() as u32,
+            split_distances: [na::Vector4::default(); 16],
+        };
+
+        let spass_config_size: u64 = ShadowMapResult::SHADER_SIZE.into();
+
+        for (i, split) in splits.iter().enumerate() {
+            spass_config.split_distances[i].x = z_near + z_diff * split;
+        }
+
+        let mut spass_config_contents =
+            UniformBuffer::new(Vec::with_capacity(spass_config_size as usize));
+        spass_config_contents.write(&spass_config)?;
+
+        use wgpu::util::DeviceExt;
+        let spass_config_buf = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: spass_config_contents.into_inner().as_slice(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
         let depth_tex_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -290,6 +338,12 @@ impl DirectionalShadowPass {
                     binding: 3,
                     resource: wgpu::BindingResource::TextureView(
                         &depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Buffer(
+                        spass_config_buf.as_entire_buffer_binding(),
                     ),
                 },
             ],
@@ -359,12 +413,7 @@ impl DirectionalShadowPass {
         projection_mat: &na::Matrix4<f32>,
         world_models: &[&GpuWorldModel],
     ) -> Result<&wgpu::BindGroup> {
-        if light.light_type != LIGHT_TYPE_DIRECTIONAL {
-            return Err(anyhow::anyhow!("light type is not directional"));
-        }
-
-        let full_frustum =
-            calculate_frustum(&camera.look_at_matrix(), &wgpu_projection(*projection_mat))?;
+        let full_frustum = calculate_frustum(&camera.look_at_matrix(), projection_mat)?;
 
         let frustum_splits = split_frustum(&full_frustum, &self.splits);
 

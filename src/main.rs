@@ -3,6 +3,7 @@ use image::EncodableLayout;
 use nalgebra as na;
 
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
+use projection::wgpu_projection;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
@@ -156,6 +157,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
 
     let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
+    let projection_mat = wgpu_projection(projection_mat);
 
     let mut camera = GpuCamera::new(
         Camera::new(
@@ -185,7 +187,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         // )
     ];
 
-    let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.2, 0.5, 1.0])?;
+    let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.2, 0.5, 1.0], &projection_mat)?;
     let phong_pass = PhongPass::new(
         &gpu,
         &camera,
