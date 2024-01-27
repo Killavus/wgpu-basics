@@ -34,7 +34,10 @@ const TILT_DELTA: f32 = 1.0;
 use gpu::Gpu;
 use model::{Cube, ObjParser, Plane};
 
-use crate::{camera::GpuCamera, projection::GpuProjection};
+use crate::{
+    camera::GpuCamera,
+    projection::{wgpu_projection, GpuProjection},
+};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
@@ -135,9 +138,21 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut planes = planes.into_gpu(&gpu.device);
     let mut teapots = teapots.into_gpu(&gpu.device);
 
-    let projection_mat =
-        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
-    let projection = GpuProjection::new(projection_mat, &gpu.device)?;
+    let projection_mat = wgpu_projection(na::Matrix4::new_perspective(
+        gpu.aspect_ratio(),
+        45.0f32.to_radians(),
+        0.1,
+        100.0,
+    ));
+
+    println!("{}", projection_mat);
+
+    let ratio: f32 = (projection_mat[(2, 2)] + 1.0) / (projection_mat[(2, 2)] - 1.0);
+    let zfar: f32 = -(projection_mat[(2, 3)] / (ratio * 2.0) - projection_mat[(2, 3)] / 2.0);
+    let znear = (projection_mat[(2, 3)] * ratio / 2.0 - projection_mat[(2, 3)] / 2.0) * 2.0;
+    println!("{} {}", znear, zfar);
+
+    let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
 
     let mut camera = GpuCamera::new(
         Camera::new(
@@ -169,7 +184,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(1.0, 0.045, 0.0075),
     ));
 
-    let shadow_pass = DirectionalShadowPass::new(&gpu)?;
+    let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.1, 0.3, 1.0])?;
     let phong_pass = PhongPass::new(
         &gpu,
         &camera,

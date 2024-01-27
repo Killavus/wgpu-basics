@@ -43,7 +43,7 @@ struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) normal: vec4<f32>,
     @location(1) w_pos: vec4<f32>,
-    @location(2) l_pos: vec4<f32>,
+    @location(2) c_pos: vec4<f32>,
     @location(3) albedo: vec3<f32>,
 };
 
@@ -56,10 +56,13 @@ struct PhongSettings {
 
 @group(1) @binding(0) var<uniform> settings: PhongSettings;
 
-@group(2) @binding(0) var<uniform> light_view: mat4x4<f32>;
-@group(2) @binding(1) var<uniform> light_projection: mat4x4<f32>;
+// Set to 12, because it has data at every 4th element.
+// min_ubo_binding_size is 256, and mat4x4 is 64.
+// so first array is on offset 0, then offset 256 and so on.
+@group(2) @binding(0) var<uniform> light_view: array<mat4x4<f32>, 12>;
+@group(2) @binding(1) var<uniform> light_projection: array<mat4x4<f32>, 12>;
 @group(2) @binding(2) var smap_sampler: sampler;
-@group(2) @binding(3) var smap: texture_depth_2d;
+@group(2) @binding(3) var smap: texture_depth_2d_array;
 
 @vertex
 fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
@@ -67,19 +70,24 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     var inv_model_t = mat4x4<f32>(i.model_invt_c0, i.model_invt_c1, i.model_invt_c2, i.model_invt_c3);
 
     var world_v = model * vec4<f32>(v.model_v, 1.0);
-    var camera_v = projection * camera * world_v;
+    var camera_v = camera * world_v;
+    var ndc_v = projection * camera_v;
 
     var out: VertexOutput;
-    out.position = camera_v;
+    out.position = ndc_v;
     out.normal = normalize(inv_model_t * vec4(v.normal_v, 0.0));
     out.w_pos = world_v;
-    out.l_pos = light_projection * light_view * world_v;
+    out.c_pos = camera_v;
     out.albedo = i.albedo;
 
     return out;
 }
 
 fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
+    var zRatio: f32 = (projection[2].z + 1.0) / (projection[2].z - 1.0);
+    var zNear: f32 = (projection[3].z * (zRatio / 2.0) - projection[3].z / 2.0) * 2.0;
+    var zFar: f32 = -(projection[3].z / (zRatio * 2.0) - projection[3].z / 2.0);
+
     var ambientStrength = settings.ambientStrength;
     var diffuseStrength = settings.diffuseStrength;
     var specularStrength = settings.specularStrength;
@@ -105,33 +113,46 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     color += attenuation * ambientStrength * light.color;
 
     var shadow = 0.0;
-    var lightPos = (in.l_pos.xyz / in.l_pos.w);
-    var lightDepth = lightPos.z;
+    if light.light_type == LIGHT_DIRECTIONAL {
+        var splits = array(0.1, 0.3, 1.0);
+        var zDiff = zFar - zNear;
 
-    var texSize = textureDimensions(smap).xy;
-
-    var texelSize = vec2(1.0 / f32(texSize.x), 1.0 / f32(texSize.y));
-
-    var texX = 1.0 / f32(texSize.x);
-    var texY = 1.0 / f32(texSize.y);
-    var bias = max(0.01 * (1.0 - dot(in.normal.xyz, lightDir)), 0.001);
-
-    var texelPos = lightPos.xy;
-
-    // Percentage Closer Filtering with 3x3.
-    for (var x = -1; x <= 1; x += 1) {
-        for (var y = -1; y <= 1; y += 1) {
-            var shadowDepth = textureSample(smap, smap_sampler, (texelPos + vec2(f32(x), f32(y)) * texelSize) * vec2(0.5, -0.5) + 0.5);
-            if (lightDepth - bias) > shadowDepth {
-                shadow += 1.0;
+        var split = 0;
+        for (var i = 0; i < 3; i = i + 1) {
+            if abs(in.c_pos.z) < (zNear + (splits[i] * zDiff)) {
+                split = i;
+                break;
             }
         }
-    }
-    shadow /= 9.0;
 
-    if lightDepth > 1.0 {
-        shadow = 0.0;
+        var l_pos = light_projection[split * 4] * light_view[split * 4] * in.w_pos;
+        var lightPos = (l_pos.xyz / l_pos.w);
+        var lightDepth = lightPos.z;
+
+        var texSize = textureDimensions(smap).xy;
+
+        var texelSize = vec2(1.0 / f32(texSize.x), 1.0 / f32(texSize.y));
+
+        var bias = max(0.01 * (1.0 - dot(in.normal.xyz, lightDir)), 0.001);
+
+        var texelPos = lightPos.xy;
+
+        // Percentage Closer Filtering with 3x3.
+        for (var x = -1; x <= 1; x += 1) {
+            for (var y = -1; y <= 1; y += 1) {
+                var shadowDepth = textureSample(smap, smap_sampler, (texelPos + vec2(f32(x), f32(y)) * texelSize) * vec2(0.5, -0.5) + 0.5, split);
+                if (lightDepth - bias) > shadowDepth {
+                    shadow += 1.0;
+                }
+            }
+        }
+        shadow /= 9.0;
+
+        if lightDepth > 1.0 {
+            shadow = 0.0;
+        }
     }
+
 
     if light.light_type == LIGHT_SPOT {
         // This is a cosine between lightDir and spotDir.
@@ -157,7 +178,6 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
-
     var color = vec3(0.0, 0.0, 0.0);
 
     for (var i = 0; u32(i) < lights.length; i = i + 1) {

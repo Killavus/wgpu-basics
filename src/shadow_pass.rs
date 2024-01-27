@@ -1,3 +1,5 @@
+use std::num::{NonZeroU32, NonZeroU64};
+
 use anyhow::Result;
 use encase::ShaderSize;
 use nalgebra as na;
@@ -12,6 +14,7 @@ use crate::{
 };
 
 pub struct DirectionalShadowPass {
+    splits: Vec<f32>,
     pipeline: wgpu::RenderPipeline,
     bg: wgpu::BindGroup,
     depth_tex: wgpu::Texture,
@@ -20,6 +23,8 @@ pub struct DirectionalShadowPass {
     out_bg: wgpu::BindGroup,
     out_bgl: wgpu::BindGroupLayout,
 }
+
+const MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT: u64 = 256;
 
 const SHADOW_MAP_SIZE: (u32, u32) = (2048, 2048);
 
@@ -53,14 +58,45 @@ fn calculate_frustum(
     }))
 }
 
+fn split_frustum(
+    frustum_points: &[na::Point3<f32>; 8],
+    splits: &[f32],
+) -> Vec<[na::Point3<f32>; 8]> {
+    let [bln, brn, tln, trn, blf, brf, tlf, trf] = frustum_points;
+
+    let bl = blf - bln;
+    let br = brf - brn;
+    let tl = tlf - tln;
+    let tr = trf - trn;
+
+    let mut result = Vec::with_capacity(splits.len());
+
+    let mut frustum_split = *frustum_points;
+    for split in splits.iter().copied() {
+        frustum_split[4] = bln + bl * split;
+        frustum_split[5] = brn + br * split;
+        frustum_split[6] = tln + tl * split;
+        frustum_split[7] = trn + tr * split;
+
+        result.push(frustum_split);
+
+        frustum_split[0] = frustum_split[4];
+        frustum_split[1] = frustum_split[5];
+        frustum_split[2] = frustum_split[6];
+        frustum_split[3] = frustum_split[7];
+    }
+
+    result
+}
+
 impl DirectionalShadowPass {
-    pub fn new(gpu: &Gpu) -> Result<Self> {
+    pub fn new(gpu: &Gpu, splits: Vec<f32>) -> Result<Self> {
         let depth_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
                 width: SHADOW_MAP_SIZE.0,
                 height: SHADOW_MAP_SIZE.1,
-                depth_or_array_layers: 1,
+                depth_or_array_layers: splits.len() as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -71,6 +107,8 @@ impl DirectionalShadowPass {
         });
 
         let shader = gpu.shader_from_file("./shaders/shadowMap.wgsl")?;
+        let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
+        let offset = mat4_size.max(MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT);
 
         let bgl = gpu
             .device
@@ -82,8 +120,8 @@ impl DirectionalShadowPass {
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                            has_dynamic_offset: true,
+                            min_binding_size: NonZeroU64::new(offset),
                         },
                         count: None,
                     },
@@ -92,8 +130,8 @@ impl DirectionalShadowPass {
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                            has_dynamic_offset: true,
+                            min_binding_size: NonZeroU64::new(offset),
                         },
                         count: None,
                     },
@@ -135,17 +173,16 @@ impl DirectionalShadowPass {
                 multiview: None,
             });
 
-        let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
         let view_mat_buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: mat4_size,
+            size: offset * splits.len() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let proj_mat_buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: mat4_size,
+            size: offset * splits.len() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -156,15 +193,19 @@ impl DirectionalShadowPass {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        view_mat_buf.as_entire_buffer_binding(),
-                    ),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &view_mat_buf,
+                        offset: 0,
+                        size: NonZeroU64::new(offset),
+                    }),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        proj_mat_buf.as_entire_buffer_binding(),
-                    ),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &proj_mat_buf,
+                        offset: 0,
+                        size: NonZeroU64::new(offset),
+                    }),
                 },
             ],
         });
@@ -176,23 +217,23 @@ impl DirectionalShadowPass {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: None,
+                        count: NonZeroU32::new(splits.len() as u32),
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: None,
+                        count: NonZeroU32::new(splits.len() as u32),
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
@@ -205,7 +246,7 @@ impl DirectionalShadowPass {
                         visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                         count: None,
@@ -255,6 +296,7 @@ impl DirectionalShadowPass {
         });
 
         Ok(Self {
+            splits,
             pipeline,
             bg,
             proj_mat_buf,
@@ -269,52 +311,16 @@ impl DirectionalShadowPass {
         &self.out_bgl
     }
 
-    pub fn render(
-        &self,
-        gpu: &Gpu,
+    fn calculate_proj_view_mats(
         light: &Light,
-        camera: &GpuCamera,
-        projection_mat: &na::Matrix4<f32>,
-        world_models: &[&GpuWorldModel],
-    ) -> Result<&wgpu::BindGroup> {
-        if light.light_type != LIGHT_TYPE_DIRECTIONAL {
-            return Err(anyhow::anyhow!("light type is not directional"));
-        }
-
-        let frustum =
-            calculate_frustum(&camera.look_at_matrix(), &wgpu_projection(*projection_mat))?;
-
+        frustum: &[na::Point3<f32>],
+    ) -> (na::Matrix4<f32>, na::Matrix4<f32>) {
         let near_plane_center = frustum[0] + ((frustum[3] - frustum[0]) / 2.0);
         let far_plane_center = frustum[4] + ((frustum[7] - frustum[4]) / 2.0);
 
         let frustum_center = near_plane_center + (far_plane_center - near_plane_center) / 2.0;
 
-        let radius = (frustum[7] - frustum[0]).norm() / 2.0;
-
-        let smap_cam_mat = na::Matrix4::look_at_rh(
-            &(frustum_center - light.direction),
-            &frustum_center,
-            &na::Vector3::y(),
-        );
-
-        let (mut xmin, mut xmax, mut ymin, mut ymax, mut zmin, mut zmax) = (
-            std::f32::MAX,
-            std::f32::MIN,
-            std::f32::MAX,
-            std::f32::MIN,
-            std::f32::MAX,
-            std::f32::MIN,
-        );
-
-        for p in frustum.iter() {
-            let p = smap_cam_mat.transform_point(p);
-            xmin = xmin.min(p.x);
-            xmax = xmax.max(p.x);
-            ymin = ymin.min(p.y);
-            ymax = ymax.max(p.y);
-            zmin = zmin.min(p.z);
-            zmax = zmax.max(p.z);
-        }
+        let radius = ((frustum[7] - frustum[0]).norm() / 2.0);
 
         let tex_per_unit = SHADOW_MAP_SIZE.0 as f32 / (radius * 2.0);
         let scaling = na::Matrix4::new_scaling(tex_per_unit);
@@ -342,51 +348,85 @@ impl DirectionalShadowPass {
             -radius, radius, -radius, radius, -radius, radius,
         ));
 
-        gpu.queue.write_buffer(
-            &self.view_mat_buf,
-            0,
-            bytemuck::cast_slice(smap_cam_mat.as_slice()),
-        );
+        (smap_cam_mat, smap_proj_mat)
+    }
 
-        gpu.queue.write_buffer(
-            &self.proj_mat_buf,
-            0,
-            bytemuck::cast_slice(smap_proj_mat.as_slice()),
-        );
-
-        let mut encoder = gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        let depth_view = self
-            .depth_tex
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.bg, &[]);
-
-            for objects in world_models {
-                objects.draw(&mut rpass);
-            }
+    pub fn render(
+        &self,
+        gpu: &Gpu,
+        light: &Light,
+        camera: &GpuCamera,
+        projection_mat: &na::Matrix4<f32>,
+        world_models: &[&GpuWorldModel],
+    ) -> Result<&wgpu::BindGroup> {
+        if light.light_type != LIGHT_TYPE_DIRECTIONAL {
+            return Err(anyhow::anyhow!("light type is not directional"));
         }
 
-        gpu.queue.submit(Some(encoder.finish()));
-        gpu.device.poll(wgpu::Maintain::Wait);
+        let full_frustum =
+            calculate_frustum(&camera.look_at_matrix(), &wgpu_projection(*projection_mat))?;
+
+        let frustum_splits = split_frustum(&full_frustum, &self.splits);
+
+        let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
+        let offset = mat4_size.max(MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT);
+
+        for (i, frustum) in frustum_splits.iter().enumerate() {
+            let (smap_cam_mat, smap_proj_mat) = Self::calculate_proj_view_mats(light, frustum);
+
+            gpu.queue.write_buffer(
+                &self.view_mat_buf,
+                i as u64 * offset,
+                bytemuck::cast_slice(smap_cam_mat.as_slice()),
+            );
+
+            gpu.queue.write_buffer(
+                &self.proj_mat_buf,
+                i as u64 * offset,
+                bytemuck::cast_slice(smap_proj_mat.as_slice()),
+            );
+
+            let depth_view = self.depth_tex.create_view(&wgpu::TextureViewDescriptor {
+                base_array_layer: i as u32,
+                array_layer_count: Some(1),
+                ..Default::default()
+            });
+
+            let mut encoder = gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                rpass.set_pipeline(&self.pipeline);
+                rpass.set_bind_group(
+                    0,
+                    &self.bg,
+                    &[(i as u64 * offset) as u32, (i as u64 * offset) as u32],
+                );
+
+                for objects in world_models {
+                    objects.draw(&mut rpass);
+                }
+            }
+
+            gpu.queue.submit(Some(encoder.finish()));
+        }
+
         Ok(&self.out_bg)
     }
 }
