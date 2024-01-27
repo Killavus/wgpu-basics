@@ -5,9 +5,9 @@ use std::{borrow::Cow, num::NonZeroU64, path::Path};
 
 const MAT4_SIZE: NonZeroU64 = na::Matrix4::<f32>::SHADER_SIZE;
 
-pub struct Gpu {
+pub struct Gpu<'window> {
     pub instance: wgpu::Instance,
-    pub surface: wgpu::Surface,
+    pub surface: wgpu::Surface<'window>,
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -17,9 +17,71 @@ pub struct Gpu {
 
 use winit::window::Window;
 
-impl Gpu {
-    pub async fn from_window(window: &Window) -> Result<Self> {
-        get_gpu(window).await
+impl<'window> Gpu<'window> {
+    pub async fn from_window(window: &'window Window) -> Result<Self> {
+        let instance = wgpu::Instance::default();
+
+        let surface = instance.create_surface(window)?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .map_or(Err(anyhow::anyhow!("No adapter found")), Ok)?;
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: adapter.features(),
+                    required_limits: wgpu::Limits::default(),
+                },
+                None,
+            )
+            .await?;
+
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: window.inner_size().width,
+            height: window.inner_size().height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        let depth_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        surface.configure(&device, &surface_config);
+
+        Ok(Gpu {
+            instance,
+            surface,
+            adapter,
+            device,
+            queue,
+            surface_config,
+            depth_tex,
+        })
     }
 
     pub fn on_resize(&mut self, new_size: (u32, u32)) {
@@ -82,71 +144,6 @@ impl Gpu {
     pub fn swapchain_format(&self) -> wgpu::TextureFormat {
         self.surface_config.format
     }
-}
-
-async fn get_gpu(window: &Window) -> Result<Gpu> {
-    let instance = wgpu::Instance::default();
-
-    let surface = unsafe { instance.create_surface(&window)? };
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        })
-        .await
-        .map_or(Err(anyhow::anyhow!("No adapter found")), Ok)?;
-
-    let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                features: adapter.features(),
-                limits: wgpu::Limits::default(),
-            },
-            None,
-        )
-        .await?;
-
-    let swapchain_capabilities = surface.get_capabilities(&adapter);
-    let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
-
-    let surface_config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: swapchain_format,
-        width: window.inner_size().width,
-        height: window.inner_size().height,
-        present_mode: wgpu::PresentMode::Fifo,
-        alpha_mode: swapchain_capabilities.alpha_modes[0],
-        view_formats: vec![],
-    };
-
-    let depth_tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: wgpu::Extent3d {
-            width: surface_config.width,
-            height: surface_config.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-
-    surface.configure(&device, &surface_config);
-
-    Ok(Gpu {
-        instance,
-        surface,
-        adapter,
-        device,
-        queue,
-        surface_config,
-        depth_tex,
-    })
 }
 
 pub struct GpuMat4(na::Matrix4<f32>, wgpu::Buffer);

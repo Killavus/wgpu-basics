@@ -41,7 +41,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut planes = WorldModel::new(Plane::new().model());
     let mut teapots = WorldModel::new(ObjParser::read_model("./models/teapot.obj")?);
 
-    // [+X, -X, +Y, -Y, +Z, -Z]
     let (sky_width, sky_height, sky_data) = [
         image::open("./textures/skybox/posx.jpg")?,
         image::open("./textures/skybox/negx.jpg")?,
