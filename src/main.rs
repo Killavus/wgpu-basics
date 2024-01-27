@@ -6,7 +6,11 @@ use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
-    dpi::PhysicalPosition, event::*, event_loop::EventLoop, keyboard::PhysicalKey, window::Window,
+    dpi::{PhysicalPosition, PhysicalSize},
+    event::*,
+    event_loop::EventLoop,
+    keyboard::PhysicalKey,
+    window::Window,
     window::WindowBuilder,
 };
 
@@ -384,7 +388,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new().build(&event_loop)?;
+    let window = WindowBuilder::new()
+        .with_inner_size(PhysicalSize::new(1366, 768))
+        .build(&event_loop)?;
 
     run(event_loop, window).await?;
 

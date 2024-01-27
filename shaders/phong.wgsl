@@ -135,7 +135,6 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
         var texelSize = vec2(1.0 / f32(texSize.x), 1.0 / f32(texSize.y));
 
         var bias = max(0.01 * (1.0 - dot(in.normal.xyz, lightDir)), 0.001);
-
         var texelPos = lightPos.xy;
 
         // Percentage Closer Filtering with 3x3.
