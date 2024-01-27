@@ -115,7 +115,7 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
 
     var shadow = 0.0;
     if light.light_type == LIGHT_DIRECTIONAL {
-        var splits = array(0.1, 0.3, 1.0);
+        var splits = array(0.2, 0.5, 1.0);
         var zDiff = zFar - zNear;
 
         var split = 0;

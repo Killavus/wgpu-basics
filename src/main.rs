@@ -2,6 +2,7 @@ use anyhow::Result;
 use image::EncodableLayout;
 use nalgebra as na;
 
+use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
@@ -16,6 +17,7 @@ mod gpu;
 mod light;
 mod model;
 mod phong_pass;
+mod postprocess_pass;
 mod projection;
 mod shadow_pass;
 mod skybox_pass;
@@ -179,7 +181,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         // )
     ];
 
-    let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.1, 0.3, 1.0])?;
+    let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.2, 0.5, 1.0])?;
     let phong_pass = PhongPass::new(
         &gpu,
         &camera,
@@ -193,6 +195,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
             specular_coefficient: 32.0,
         },
     )?;
+    let postprocess_pass =
+        PostprocessPass::new(&gpu, PostprocessSettings::new(1.0, 0.0, 1.0, 0.45))?;
 
     let skybox_pass = SkyboxPass::new(&gpu, &projection, &camera, skybox_tex, skybox_sampler)?;
 
@@ -239,6 +243,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             .unwrap();
                         let frame = phong_pass.render(gpu, &[cubes, planes, teapots], spass_bg);
                         let frame = skybox_pass.render(gpu, frame);
+                        let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();
                         window.request_redraw();

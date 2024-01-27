@@ -43,10 +43,10 @@ impl<'window> Gpu<'window> {
             .await?;
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format: swapchain_format,
             width: window.inner_size().width,
             height: window.inner_size().height,
