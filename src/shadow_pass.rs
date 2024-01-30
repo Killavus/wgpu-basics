@@ -1,4 +1,4 @@
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU64;
 
 use anyhow::Result;
 use encase::{ShaderSize, ShaderType, UniformBuffer};
@@ -10,19 +10,20 @@ use crate::{
 };
 
 pub struct DirectionalShadowPass {
-    splits: Vec<f32>,
+    splits: [f32; SPLIT_COUNT],
     pipeline: wgpu::RenderPipeline,
     bg: wgpu::BindGroup,
     depth_tex: wgpu::Texture,
     proj_mat_buf: wgpu::Buffer,
     view_mat_buf: wgpu::Buffer,
+    out_buf: wgpu::Buffer,
     out_bg: wgpu::BindGroup,
     out_bgl: wgpu::BindGroupLayout,
 }
 
 const MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT: u64 = 256;
-
-const SHADOW_MAP_SIZE: (u32, u32) = (2048, 2048);
+const SPLIT_COUNT: usize = 3;
+const SHADOW_MAP_SIZE: u32 = 2048;
 
 #[derive(ShaderType)]
 struct ShadowMapResult {
@@ -93,17 +94,17 @@ fn split_frustum(
 }
 
 impl DirectionalShadowPass {
-    pub fn new(gpu: &Gpu, splits: Vec<f32>, projection_mat: &na::Matrix4<f32>) -> Result<Self> {
-        if splits.len() > 16 {
-            anyhow::bail!("too many splits");
-        }
-
+    pub fn new(
+        gpu: &Gpu,
+        splits: [f32; SPLIT_COUNT],
+        projection_mat: &na::Matrix4<f32>,
+    ) -> Result<Self> {
         let depth_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: SHADOW_MAP_SIZE.0,
-                height: SHADOW_MAP_SIZE.1,
-                depth_or_array_layers: splits.len() as u32,
+                width: SHADOW_MAP_SIZE,
+                height: SHADOW_MAP_SIZE,
+                depth_or_array_layers: SPLIT_COUNT as u32,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -230,26 +231,16 @@ impl DirectionalShadowPass {
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
-                        count: NonZeroU32::new(splits.len() as u32),
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: NonZeroU32::new(splits.len() as u32),
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 3,
+                        binding: 2,
                         visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Depth,
@@ -259,7 +250,7 @@ impl DirectionalShadowPass {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 4,
+                        binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
@@ -314,34 +305,35 @@ impl DirectionalShadowPass {
             ..Default::default()
         });
 
+        let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
+
+        let out_buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: mat4_size * SPLIT_COUNT as u64 * 2,
+            mapped_at_creation: false,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let out_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &out_bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        view_mat_buf.as_entire_buffer_binding(),
-                    ),
+                    resource: wgpu::BindingResource::Buffer(out_buf.as_entire_buffer_binding()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        proj_mat_buf.as_entire_buffer_binding(),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: wgpu::BindingResource::Sampler(&depth_tex_sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: wgpu::BindingResource::TextureView(
                         &depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 4,
+                    binding: 3,
                     resource: wgpu::BindingResource::Buffer(
                         spass_config_buf.as_entire_buffer_binding(),
                     ),
@@ -358,6 +350,7 @@ impl DirectionalShadowPass {
             depth_tex: depth_texture,
             out_bg,
             out_bgl,
+            out_buf,
         })
     }
 
@@ -376,7 +369,7 @@ impl DirectionalShadowPass {
 
         let radius = (frustum[7] - frustum[0]).norm() / 2.0;
 
-        let tex_per_unit = SHADOW_MAP_SIZE.0 as f32 / (radius * 2.0);
+        let tex_per_unit = SHADOW_MAP_SIZE as f32 / (radius * 2.0);
         let scaling = na::Matrix4::new_scaling(tex_per_unit);
 
         let smap_cam_nonadjusted = na::Matrix4::look_at_rh(
@@ -435,9 +428,22 @@ impl DirectionalShadowPass {
                 bytemuck::cast_slice(smap_proj_mat.as_slice()),
             );
 
+            gpu.queue.write_buffer(
+                &self.out_buf,
+                (i as u64) * mat4_size,
+                bytemuck::cast_slice(smap_cam_mat.as_slice()),
+            );
+
+            gpu.queue.write_buffer(
+                &self.out_buf,
+                (i as u64 + SPLIT_COUNT as u64) * mat4_size,
+                bytemuck::cast_slice(smap_proj_mat.as_slice()),
+            );
+
             let depth_view = self.depth_tex.create_view(&wgpu::TextureViewDescriptor {
                 base_array_layer: i as u32,
                 array_layer_count: Some(1),
+                dimension: Some(wgpu::TextureViewDimension::D2),
                 ..Default::default()
             });
 

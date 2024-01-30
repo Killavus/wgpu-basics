@@ -61,14 +61,19 @@ struct ShadowMapResult {
     split_depths: array<vec4<f32>, 16>
 };
 
-// Set to 12, because it has data at every 4th element.
-// min_ubo_binding_size is 256, and mat4x4 is 64.
-// so first array is on offset 0, then offset 256 and so on.
-@group(3) @binding(0) var<uniform> light_view: array<mat4x4<f32>, 12>;
-@group(3) @binding(1) var<uniform> light_projection: array<mat4x4<f32>, 12>;
-@group(3) @binding(2) var smap_sampler: sampler;
-@group(3) @binding(3) var smap: texture_depth_2d_array;
-@group(3) @binding(4) var<uniform> smap_result: ShadowMapResult;
+struct ShadowMapMatrices {
+    cam_split_1: mat4x4<f32>,
+    cam_split_2: mat4x4<f32>,
+    cam_split_3: mat4x4<f32>,
+    proj_split_1: mat4x4<f32>,
+    proj_split_2: mat4x4<f32>,
+    proj_split_3: mat4x4<f32>,
+};
+
+@group(3) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
+@group(3) @binding(1) var smap_sampler: sampler;
+@group(3) @binding(2) var smap: texture_depth_2d_array;
+@group(3) @binding(3) var<uniform> smap_result: ShadowMapResult;
 
 @vertex
 fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
@@ -118,6 +123,9 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     var shadow = 0.0;
     if light.light_type == LIGHT_DIRECTIONAL {
         var split = -1;
+        var light_cam_mats = array<mat4x4<f32>, 3>(smap_matrices.cam_split_1, smap_matrices.cam_split_2, smap_matrices.cam_split_3);
+        var light_proj_mats = array<mat4x4<f32>, 3>(smap_matrices.proj_split_1, smap_matrices.proj_split_2, smap_matrices.proj_split_3);
+
         for (var i = 0; i < i32(smap_result.num_splits); i += 1) {
             if abs(in.c_pos.z) < smap_result.split_depths[i].x {
                 split = i;
@@ -126,7 +134,7 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
         }
 
         if split > -1 {
-            var l_pos = light_projection[split * 4] * light_view[split * 4] * in.w_pos;
+            var l_pos = light_proj_mats[split] * light_cam_mats[split] * in.w_pos;
             var lightPos = (l_pos.xyz / l_pos.w);
             var lightDepth = lightPos.z;
 
