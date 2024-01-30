@@ -43,7 +43,15 @@ impl<'window> Gpu<'window> {
             .await?;
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
+        let linear_formats = [
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureFormat::Bgra8Unorm,
+        ];
+
+        let swapchain_format = linear_formats
+            .into_iter()
+            .find(|format| swapchain_capabilities.formats.contains(format))
+            .expect("failed to find suitable surface for initialization");
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
