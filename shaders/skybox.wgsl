@@ -1,7 +1,7 @@
 @group(0) @binding(0) var<uniform> camera: mat4x4<f32>;
 @group(0) @binding(1) var<uniform> projection: mat4x4<f32>;
-@group(0) @binding(2) var skybox_texture: texture_cube<f32>;
-@group(0) @binding(3) var skybox_sampler: sampler;
+@group(1) @binding(0) var skybox_texture: texture_cube<f32>;
+@group(1) @binding(1) var skybox_sampler: sampler;
 
 struct VertexIn {
     @location(0) model_v: vec3<f32>,

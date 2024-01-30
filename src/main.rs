@@ -207,7 +207,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let postprocess_pass =
         PostprocessPass::new(&gpu, PostprocessSettings::new(1.0, 0.0, 1.0, 0.45))?;
 
-    let skybox_pass = SkyboxPass::new(&gpu, &projection, &camera, skybox_tex, skybox_sampler)?;
+    let skybox_pass = SkyboxPass::new(&gpu, &scene_uniform, skybox_tex, skybox_sampler)?;
 
     let window: &Window = &window;
 
@@ -256,7 +256,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             &[cubes, planes, teapots],
                             spass_bg,
                         );
-                        let frame = skybox_pass.render(gpu, frame);
+                        let frame = skybox_pass.render(gpu, &scene_uniform, frame);
                         let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();

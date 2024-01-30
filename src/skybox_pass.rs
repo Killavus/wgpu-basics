@@ -3,6 +3,7 @@ use crate::{
     gpu::Gpu,
     model::{Cube, GpuModel},
     projection::GpuProjection,
+    scene_uniform::SceneUniform,
     world_model::{GpuWorldModel, WorldModel},
 };
 use anyhow::Result;
@@ -25,8 +26,7 @@ pub struct SkyboxPass {
 impl SkyboxPass {
     pub fn new(
         gpu: &Gpu,
-        projection: &GpuProjection,
-        camera: &GpuCamera,
+        scene_uniform: &SceneUniform,
         skybox_tex: wgpu::Texture,
         skybox_sampler: wgpu::Sampler,
     ) -> Result<Self> {
@@ -46,26 +46,6 @@ impl SkyboxPass {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -75,7 +55,7 @@ impl SkyboxPass {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 3,
+                        binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -89,18 +69,10 @@ impl SkyboxPass {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: camera.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: projection.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: wgpu::BindingResource::TextureView(&tex_view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 1,
                     resource: wgpu::BindingResource::Sampler(&skybox_sampler),
                 },
             ],
@@ -112,7 +84,7 @@ impl SkyboxPass {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bgl],
+                bind_group_layouts: &[scene_uniform.layout(), &bgl],
                 push_constant_ranges: &[],
             });
 
@@ -156,7 +128,12 @@ impl SkyboxPass {
         })
     }
 
-    pub fn render(&self, gpu: &Gpu, frame: wgpu::SurfaceTexture) -> wgpu::SurfaceTexture {
+    pub fn render(
+        &self,
+        gpu: &Gpu,
+        scene_uniform: &SceneUniform,
+        frame: wgpu::SurfaceTexture,
+    ) -> wgpu::SurfaceTexture {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -190,7 +167,8 @@ impl SkyboxPass {
             });
 
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.bg, &[]);
+            rpass.set_bind_group(0, scene_uniform.bind_group(), &[]);
+            rpass.set_bind_group(1, &self.bg, &[]);
 
             self.cube_model.draw(&mut rpass);
         }
