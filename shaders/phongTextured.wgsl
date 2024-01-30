@@ -4,6 +4,7 @@ struct Light {
     direction: vec3<f32>,
     color: vec3<f32>,
     angle: f32,
+    casting_shadows: u32,
     attenuation: vec3<f32>,
 };
 
@@ -17,10 +18,9 @@ const LIGHT_DIRECTIONAL: u32 = u32(1);
 const LIGHT_SPOT: u32 = u32(2);
 
 @group(0) @binding(0) var<uniform> camera: mat4x4<f32>;
-@group(0) @binding(1) var<uniform> projection: mat4x4<f32>;
-@group(0) @binding(2) var<uniform> camera_model: mat4x4<f32>;
-
-@group(1) @binding(0) var<storage, read> lights: Lights;
+@group(0) @binding(1) var<uniform> camera_model: mat4x4<f32>;
+@group(0) @binding(2) var<uniform> projection: mat4x4<f32>;
+@group(0) @binding(3) var<storage, read> lights: Lights;
 
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
@@ -54,7 +54,7 @@ struct PhongSettings {
     specularCoeff: f32,
 };
 
-@group(2) @binding(0) var<uniform> settings: PhongSettings;
+@group(1) @binding(0) var<uniform> settings: PhongSettings;
 
 struct ShadowMapResult {
     num_splits: u32,
@@ -64,11 +64,11 @@ struct ShadowMapResult {
 // Set to 12, because it has data at every 4th element.
 // min_ubo_binding_size is 256, and mat4x4 is 64.
 // so first array is on offset 0, then offset 256 and so on.
-@group(3) @binding(0) var<uniform> light_view: array<mat4x4<f32>, 12>;
-@group(3) @binding(1) var<uniform> light_projection: array<mat4x4<f32>, 12>;
-@group(3) @binding(2) var smap_sampler: sampler;
-@group(3) @binding(3) var smap: texture_depth_2d_array;
-@group(3) @binding(4) var<uniform> smap_result: ShadowMapResult;
+@group(2) @binding(0) var<uniform> light_view: array<mat4x4<f32>, 12>;
+@group(2) @binding(1) var<uniform> light_projection: array<mat4x4<f32>, 12>;
+@group(2) @binding(2) var smap_sampler: sampler;
+@group(2) @binding(3) var smap: texture_depth_2d_array;
+@group(2) @binding(4) var<uniform> smap_result: ShadowMapResult;
 
 @vertex
 fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {

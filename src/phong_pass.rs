@@ -1,15 +1,22 @@
 use crate::{
-    camera::GpuCamera,
     gpu::Gpu,
     light::{GpuLights, Light},
     model::GpuModel,
-    projection::GpuProjection,
+    scene_uniform::SceneUniform,
     world_model::GpuWorldModel,
 };
 use anyhow::Result;
 use encase::{ArrayLength, ShaderSize, ShaderType, StorageBuffer, UniformBuffer};
 
+/// Phong Pass shader is having three variations:
+/// 1. Solid color Phong pass, which uses albedo color of model to perform lighting.
+/// 2. Textured Phong pass, which uses diffuse and specular textures to perform lighting.
+/// 3. Textured Phong pass with normal mapping, which uses diffuse, specular and normal textures to perform lighting.
+/// Not going to implement:
+/// Parallax mapping
+
 pub struct PhongPass {
+    // pipelines: PhongPipelines,
     pass_bgl: wgpu::BindGroupLayout,
     pass_bg: wgpu::BindGroup,
     settings_bgl: wgpu::BindGroupLayout,
@@ -20,6 +27,12 @@ pub struct PhongPass {
     shader: wgpu::ShaderModule,
     settings: PhongSettings,
     settings_buf: wgpu::Buffer,
+}
+
+struct PhongPipelines {
+    solid: wgpu::RenderPipeline,
+    textured: wgpu::RenderPipeline,
+    textured_normal: wgpu::RenderPipeline,
 }
 
 #[derive(ShaderType)]
@@ -33,8 +46,7 @@ pub struct PhongSettings {
 impl PhongPass {
     pub fn new(
         gpu: &Gpu,
-        camera: &GpuCamera,
-        projection: &GpuProjection,
+        scene_uniform: &SceneUniform,
         lights: &[Light],
         shadow_bgl: &wgpu::BindGroupLayout,
         settings: PhongSettings,
@@ -75,71 +87,25 @@ impl PhongPass {
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: None,
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
+                    count: None,
+                }],
             });
 
         let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bg_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: camera.model_buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: projection.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: light_buf.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: light_buf.as_entire_binding(),
+            }],
         });
 
         let settings_bgl = gpu
@@ -171,7 +137,12 @@ impl PhongPass {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&bg_layout, &settings_bgl, &shadow_bgl],
+                bind_group_layouts: &[
+                    scene_uniform.layout(),
+                    &bg_layout,
+                    &settings_bgl,
+                    &shadow_bgl,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -224,6 +195,7 @@ impl PhongPass {
     pub fn render(
         &self,
         gpu: &Gpu,
+        scene_uniform: &SceneUniform,
         world_models: &[&GpuWorldModel],
         shadow_bg: &wgpu::BindGroup,
     ) -> wgpu::SurfaceTexture {
@@ -261,9 +233,10 @@ impl PhongPass {
             });
 
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.pass_bg, &[]);
-            rpass.set_bind_group(1, &self.settings_bg, &[]);
-            rpass.set_bind_group(2, shadow_bg, &[]);
+            rpass.set_bind_group(0, scene_uniform.bind_group(), &[]);
+            rpass.set_bind_group(1, &self.pass_bg, &[]);
+            rpass.set_bind_group(2, &self.settings_bg, &[]);
+            rpass.set_bind_group(3, shadow_bg, &[]);
 
             for model in world_models {
                 model.draw(&mut rpass);

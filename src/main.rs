@@ -4,6 +4,7 @@ use nalgebra as na;
 
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use projection::wgpu_projection;
+use scene_uniform::SceneUniform;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
@@ -24,6 +25,7 @@ mod model;
 mod phong_pass;
 mod postprocess_pass;
 mod projection;
+mod scene_uniform;
 mod shadow_pass;
 mod skybox_pass;
 mod world_model;
@@ -187,11 +189,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         // )
     ];
 
+    let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
+
     let shadow_pass = DirectionalShadowPass::new(&gpu, vec![0.2, 0.5, 1.0], &projection_mat)?;
     let phong_pass = PhongPass::new(
         &gpu,
-        &camera,
-        &projection,
+        &scene_uniform,
         &lights,
         shadow_pass.out_bind_group_layout(),
         PhongSettings {
@@ -247,7 +250,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 &[cubes, planes, teapots],
                             )
                             .unwrap();
-                        let frame = phong_pass.render(gpu, &[cubes, planes, teapots], spass_bg);
+                        let frame = phong_pass.render(
+                            gpu,
+                            &scene_uniform,
+                            &[cubes, planes, teapots],
+                            spass_bg,
+                        );
                         let frame = skybox_pass.render(gpu, frame);
                         let frame = postprocess_pass.render(gpu, frame);
 

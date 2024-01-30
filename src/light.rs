@@ -12,7 +12,6 @@ pub struct Light {
     pub direction: na::Vector3<f32>,
     pub color: na::Vector3<f32>,
     pub angle: f32,
-    pub casting_shadows: u32,
     pub attenuation: na::Vector3<f32>,
 }
 
@@ -35,7 +34,6 @@ impl Light {
             direction: na::Vector3::zeros(),
             color,
             angle: 0.0,
-            casting_shadows: 0,
             attenuation,
         }
     }
@@ -47,7 +45,6 @@ impl Light {
             direction,
             color,
             angle: 0.0,
-            casting_shadows: 0,
             attenuation: na::Vector3::zeros(),
         }
     }
@@ -65,12 +62,7 @@ impl Light {
             direction,
             color,
             angle,
-            casting_shadows: 0,
             attenuation,
         }
-    }
-
-    pub fn toggle_shadow_casting(&mut self) {
-        self.casting_shadows = 1;
     }
 }
