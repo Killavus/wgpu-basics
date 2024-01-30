@@ -25,6 +25,7 @@ mod model;
 mod phong_pass;
 mod postprocess_pass;
 mod projection;
+mod scene;
 mod scene_uniform;
 mod shadow_pass;
 mod skybox_pass;
