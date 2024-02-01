@@ -5,8 +5,12 @@ use encase::{ShaderSize, ShaderType, UniformBuffer};
 use nalgebra as na;
 
 use crate::{
-    camera::GpuCamera, gpu::Gpu, light::Light, model::GpuModel, projection::wgpu_projection,
-    world_model::GpuWorldModel,
+    camera::GpuCamera,
+    gpu::Gpu,
+    mesh::{Mesh, PN_SLOTS},
+    phong_light::PhongLight,
+    projection::wgpu_projection,
+    scene::{GpuScene, Instance},
 };
 
 pub struct DirectionalShadowPass {
@@ -162,7 +166,10 @@ impl DirectionalShadowPass {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
-                    buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
+                    buffers: &[
+                        Mesh::pn_vertex_layout(),
+                        Instance::pn_model_instance_layout(),
+                    ],
                 },
                 fragment: None,
                 primitive: wgpu::PrimitiveState {
@@ -359,7 +366,7 @@ impl DirectionalShadowPass {
     }
 
     fn calculate_proj_view_mats(
-        light: &Light,
+        light: &PhongLight,
         frustum: &[na::Point3<f32>],
     ) -> (na::Matrix4<f32>, na::Matrix4<f32>) {
         let near_plane_center = frustum[0] + ((frustum[3] - frustum[0]) / 2.0);
@@ -386,7 +393,7 @@ impl DirectionalShadowPass {
         frustum_center_light = smap_cam_nonadjusted_inv.transform_point(&frustum_center_light);
 
         let smap_cam_mat = na::Matrix4::look_at_rh(
-            &(frustum_center_light - light.direction),
+            &(frustum_center_light - light.direction.xyz()),
             &frustum_center_light,
             &na::Vector3::y(),
         );
@@ -401,10 +408,10 @@ impl DirectionalShadowPass {
     pub fn render(
         &self,
         gpu: &Gpu,
-        light: &Light,
+        light: &PhongLight,
         camera: &GpuCamera,
         projection_mat: &na::Matrix4<f32>,
-        world_models: &[&GpuWorldModel],
+        scene: &GpuScene,
     ) -> Result<&wgpu::BindGroup> {
         let full_frustum = calculate_frustum(&camera.look_at_matrix(), projection_mat)?;
 
@@ -474,8 +481,36 @@ impl DirectionalShadowPass {
                     &[(i as u64 * offset) as u32, (i as u64 * offset) as u32],
                 );
 
-                for objects in world_models {
-                    objects.draw(&mut rpass);
+                for draw_call in scene.draw_calls() {
+                    rpass.set_vertex_buffer(
+                        0,
+                        scene
+                            .vertex_buffer_by_type(draw_call.vertex_array_type)
+                            .slice(..),
+                    );
+                    rpass.set_vertex_buffer(
+                        1,
+                        scene
+                            .instance_buffer_by_type(draw_call.instance_type)
+                            .slice(..),
+                    );
+
+                    if draw_call.indexed {
+                        rpass.set_index_buffer(
+                            scene.index_buffer().slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+
+                        rpass.draw_indexed_indirect(
+                            scene.indexed_draw_buffer(),
+                            draw_call.draw_buffer_offset,
+                        );
+                    } else {
+                        rpass.draw_indirect(
+                            scene.non_indexed_draw_buffer(),
+                            draw_call.draw_buffer_offset,
+                        );
+                    }
                 }
             }
 

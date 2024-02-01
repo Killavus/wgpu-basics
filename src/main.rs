@@ -1,9 +1,12 @@
 use anyhow::Result;
 use image::EncodableLayout;
+use material::{Material, MaterialAtlas};
+use mesh::MeshBuilder;
 use nalgebra as na;
 
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use projection::wgpu_projection;
+use scene::{GpuScene, Instance, Scene, SceneModelBuilder};
 use scene_uniform::SceneUniform;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
@@ -20,36 +23,126 @@ use camera::Camera;
 
 mod camera;
 mod gpu;
-mod light;
-mod model;
+mod material;
+mod mesh;
+mod phong_light;
 mod phong_pass;
 mod postprocess_pass;
 mod projection;
 mod scene;
 mod scene_uniform;
 mod shadow_pass;
+mod shapes;
 mod skybox_pass;
 mod world_model;
 
-use light::Light;
-use phong_pass::{PhongPass, PhongSettings};
-
-use world_model::WorldModel;
+use phong_light::PhongLightScene;
+use phong_pass::PhongPass;
 
 const MOVE_DELTA: f32 = 0.25;
 const TILT_DELTA: f32 = 1.0;
 
 use gpu::Gpu;
-use model::{Cube, ObjParser, Plane};
+use shapes::{Cube, Plane};
 
 use crate::{camera::GpuCamera, projection::GpuProjection};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
-    let mut cubes = WorldModel::new(Cube::new().model());
-    let mut planes = WorldModel::new(Plane::new().model());
-    let mut teapots = WorldModel::new(ObjParser::read_model("./models/teapot.obj")?);
+    let cube_mesh = MeshBuilder::new().with_geometry(Cube::geometry()).build()?;
+    let plane_mesh = MeshBuilder::new()
+        .with_geometry(Plane::geometry())
+        .build()?;
+
+    let mut scene = Scene::default();
+    let mut material_atlas = MaterialAtlas::new(&gpu);
+
+    let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));
+    let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_mesh]));
+
+    let light_gray = material_atlas.add_material(
+        &gpu,
+        Material::PhongSolid {
+            albedo: na::Vector4::new(0.6, 0.6, 0.6, 0.1),
+            diffuse: na::Vector4::new(0.6, 0.6, 0.6, 0.7),
+            specular: na::Vector4::new(0.6, 0.6, 0.6, 32.0),
+        },
+    )?;
+
+    let lily = material_atlas.add_material(
+        &gpu,
+        Material::PhongSolid {
+            albedo: na::Vector4::new(0.5, 0.5, 1.0, 0.0),
+            diffuse: na::Vector4::new(0.5, 0.5, 1.0, 0.0),
+            specular: na::Vector4::new(0.5, 0.5, 1.0, 16.0),
+        },
+    )?;
+
+    let quite_red = material_atlas.add_material(
+        &gpu,
+        Material::PhongSolid {
+            albedo: na::Vector4::new(0.8, 0.2, 0.2, 0.1),
+            diffuse: na::Vector4::new(0.8, 0.2, 0.2, 0.7),
+            specular: na::Vector4::new(0.8, 0.2, 0.2, 32.0),
+        },
+    )?;
+
+    let white = material_atlas.add_material(
+        &gpu,
+        Material::PhongSolid {
+            albedo: na::Vector4::new(1.0, 1.0, 1.0, 0.1),
+            diffuse: na::Vector4::new(1.0, 1.0, 1.0, 0.7),
+            specular: na::Vector4::new(1.0, 1.0, 1.0, 32.0),
+        },
+    )?;
+
+    let toxic_green = material_atlas.add_material(
+        &gpu,
+        Material::PhongSolid {
+            albedo: na::Vector4::new(0.2, 0.8, 0.4, 0.0),
+            diffuse: na::Vector4::new(0.2, 0.8, 0.4, 0.0),
+            specular: na::Vector4::new(0.2, 0.8, 0.4, 32.0),
+        },
+    )?;
+
+    scene.add_object_with_material(
+        cube,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(4.0, 4.5, -2.0))
+                * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
+                * na::Matrix4::new_scaling(1.0),
+        ),
+        quite_red,
+    );
+
+    scene.add_object_with_material(
+        cube,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(12.0, 12.0, 0.0))
+                * na::Matrix4::new_scaling(0.5),
+        ),
+        white,
+    );
+
+    scene.add_object_with_material(
+        cube,
+        Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
+            -6.0, 0.5, -4.0,
+        ))),
+        toxic_green,
+    );
+
+    scene.add_object_with_material(
+        plane,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
+                * na::Matrix4::new_scaling(1000.0),
+        ),
+        light_gray,
+    );
+
+    let gpu_scene = GpuScene::new(&gpu, scene)?;
 
     let (sky_width, sky_height, sky_data) = [
         image::open("./textures/skybox/posx.jpg")?,
@@ -107,54 +200,26 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         ..Default::default()
     });
 
-    planes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
-            * na::Matrix4::new_scaling(1000.0),
-        na::Vector3::new(0.6, 0.6, 0.6),
-    );
+    // teapots.add(
+    //     na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
+    //         * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+    //         * na::Matrix4::new_scaling(1.0),
+    //     na::Vector3::new(0.5, 0.5, 1.0),
+    // );
 
-    teapots.add(
-        na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
-            * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-            * na::Matrix4::new_scaling(1.0),
-        na::Vector3::new(0.5, 0.5, 1.0),
-    );
+    // teapots.add(
+    //     na::Matrix4::new_translation(&na::Vector3::new(-2.0, 0.0, -10.0))
+    //         * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+    //         * na::Matrix4::new_scaling(1.0),
+    //     na::Vector3::new(0.5, 0.5, 1.0),
+    // );
 
-    teapots.add(
-        na::Matrix4::new_translation(&na::Vector3::new(-2.0, 0.0, -10.0))
-            * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-            * na::Matrix4::new_scaling(1.0),
-        na::Vector3::new(0.5, 0.5, 1.0),
-    );
-
-    teapots.add(
-        na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.0, -22.0))
-            * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-            * na::Matrix4::new_scaling(1.0),
-        na::Vector3::new(0.5, 0.5, 1.0),
-    );
-
-    cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(4.0, 4.5, -2.0))
-            * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
-            * na::Matrix4::new_scaling(1.0),
-        na::Vector3::new(0.8, 0.2, 0.2),
-    );
-
-    cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(12.0, 12.0, 0.0))
-            * na::Matrix4::new_scaling(0.5),
-        na::Vector3::new(1.0, 1.0, 1.0),
-    );
-
-    cubes.add(
-        na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.5, -4.0)),
-        na::Vector3::new(0.2, 0.8, 0.4),
-    );
-
-    let cubes = cubes.into_gpu(&gpu.device);
-    let planes = planes.into_gpu(&gpu.device);
-    let teapots = teapots.into_gpu(&gpu.device);
+    // teapots.add(
+    //     na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.0, -22.0))
+    //         * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+    //         * na::Matrix4::new_scaling(1.0),
+    //     na::Vector3::new(0.5, 0.5, 1.0),
+    // );
 
     let projection_mat =
         na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
@@ -171,24 +236,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &gpu.device,
     )?;
 
-    let lights = vec![
-        Light::new_directional(
-            na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
-            na::Vector3::new(1.0, 1.0, 1.0),
-        ),
-        // Light::new_point(
-        //     na::Vector3::new(12.0, 12.0, 2.0),
-        //     na::Vector3::new(0.9, 0.43, 0.11),
-        //     na::Vector3::new(1.0, 0.045, 0.0075),
-        // ),
-        // Light::new_spot(
-        //     na::Vector3::new(0.0, 5.0, 0.0),
-        //     na::Vector3::new(0.0, -1.0, 0.0),
-        //     na::Vector3::new(0.0, 0.0, 1.0),
-        //     45.0f32.to_radians(),
-        //     na::Vector3::new(1.0, 0.045, 0.0075),
-        // )
-    ];
+    let mut lights = PhongLightScene::default();
+
+    lights.new_directional(
+        na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
+        na::Vector3::new(0.1, 0.1, 0.1),
+        na::Vector3::new(0.5, 0.5, 0.5),
+        na::Vector3::new(1.0, 1.0, 1.0),
+    );
 
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
 
@@ -197,27 +252,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &gpu,
         &scene_uniform,
         &lights,
+        &material_atlas.layouts.phong_solid,
         shadow_pass.out_bind_group_layout(),
-        PhongSettings {
-            ambient_strength: 0.2,
-            diffuse_strength: 0.6,
-            specular_strength: 0.2,
-            specular_coefficient: 32.0,
-        },
     )?;
+
     let postprocess_pass =
         PostprocessPass::new(&gpu, PostprocessSettings::new(1.0, 0.0, 1.0, 0.45))?;
 
     let skybox_pass = SkyboxPass::new(&gpu, &scene_uniform, skybox_tex, skybox_sampler)?;
 
     let window: &Window = &window;
-
-    // let mut delta = Instant::now();
-    // let delta = &mut delta;
-
-    let cubes = &cubes;
-    let planes = &planes;
-    let teapots = &teapots;
 
     let gpu = &mut gpu;
 
@@ -245,16 +289,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let spass_bg = shadow_pass
                             .render(
                                 gpu,
-                                &lights[0],
+                                &lights.directional[0],
                                 &camera,
                                 &projection_mat,
-                                &[cubes, planes, teapots],
+                                &gpu_scene,
                             )
                             .unwrap();
                         let frame = phong_pass.render(
                             gpu,
                             &scene_uniform,
-                            &[cubes, planes, teapots],
+                            &material_atlas,
+                            &gpu_scene,
                             spass_bg,
                         );
                         let frame = skybox_pass.render(gpu, &scene_uniform, frame);

@@ -1,27 +1,20 @@
 use crate::{
-    camera::GpuCamera,
     gpu::Gpu,
-    model::{Cube, GpuModel},
-    projection::GpuProjection,
+    mesh::{Mesh, MeshBuilder},
     scene_uniform::SceneUniform,
-    world_model::{GpuWorldModel, WorldModel},
+    shapes::Cube,
 };
 use anyhow::Result;
-use nalgebra as na;
 
 pub struct SkyboxPass {
     bg: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
     bgl: wgpu::BindGroupLayout,
-    cube_model: GpuWorldModel,
+    vbuf: wgpu::Buffer,
+    ibuf: wgpu::Buffer,
     skybox_tex: wgpu::Texture,
     skybox_sampler: wgpu::Sampler,
 }
-
-// Idea is like this:
-// 1. Render the scene (phong pass)
-// 2. Take camera, remove its translation.
-// 3. Render the skybox with depth test inverted.
 
 impl SkyboxPass {
     pub fn new(
@@ -30,9 +23,29 @@ impl SkyboxPass {
         skybox_tex: wgpu::Texture,
         skybox_sampler: wgpu::Sampler,
     ) -> Result<Self> {
-        let mut cube_model = WorldModel::new(Cube::new().model());
-        cube_model.add(na::Matrix4::identity(), na::Vector3::zeros());
-        let cube_model = cube_model.into_gpu(&gpu.device);
+        let cube_mesh = MeshBuilder::new().with_geometry(Cube::geometry()).build()?;
+        let mut cube_vbuf = vec![];
+        let mut cube_index = vec![];
+        cube_mesh.copy_to_mesh_bank(&mut cube_vbuf);
+        cube_mesh.copy_to_index_buffer(&mut cube_index);
+
+        use wgpu::util::DeviceExt;
+
+        let vbuf = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: cube_vbuf.as_slice(),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+        let ibuf = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(cube_index.as_slice()),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         let tex_view = skybox_tex.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
@@ -96,7 +109,7 @@ impl SkyboxPass {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
-                    buffers: &[GpuModel::vertex_layout(), GpuWorldModel::instance_layout()],
+                    buffers: &[Mesh::pn_vertex_layout()],
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -122,7 +135,8 @@ impl SkyboxPass {
             bg,
             pipeline,
             bgl,
-            cube_model,
+            vbuf,
+            ibuf,
             skybox_tex,
             skybox_sampler,
         })
@@ -170,7 +184,9 @@ impl SkyboxPass {
             rpass.set_bind_group(0, scene_uniform.bind_group(), &[]);
             rpass.set_bind_group(1, &self.bg, &[]);
 
-            self.cube_model.draw(&mut rpass);
+            rpass.set_vertex_buffer(0, self.vbuf.slice(..));
+            rpass.set_index_buffer(self.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..36, 0, 0..1);
         }
 
         gpu.queue.submit(Some(encoder.finish()));

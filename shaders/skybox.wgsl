@@ -8,18 +8,6 @@ struct VertexIn {
     @location(1) normal_v: vec3<f32>,
 };
 
-struct Instance {
-    @location(2) model_c0: vec4<f32>,
-    @location(3) model_c1: vec4<f32>,
-    @location(4) model_c2: vec4<f32>,
-    @location(5) model_c3: vec4<f32>,
-    @location(6) model_invt_c0: vec4<f32>,
-    @location(7) model_invt_c1: vec4<f32>,
-    @location(8) model_invt_c2: vec4<f32>,
-    @location(9) model_invt_c3: vec4<f32>,
-    @location(10) albedo: vec3<f32>,
-};
-
 struct VertexOut {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coord: vec3<f32>,
@@ -27,7 +15,7 @@ struct VertexOut {
 
 
 @vertex
-fn vs_main(v: VertexIn, i: Instance) -> VertexOut {
+fn vs_main(v: VertexIn) -> VertexOut {
     var o: VertexOut;
 
     var camera_mat = mat4x4<f32>(

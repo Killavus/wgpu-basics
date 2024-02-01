@@ -1,26 +1,55 @@
+const LIGHT_POINT: u32 = u32(0);
+const LIGHT_DIRECTIONAL: u32 = u32(1);
+const LIGHT_SPOT: u32 = u32(2);
+
 struct Light {
-    light_type: u32,
-    position: vec3<f32>,
-    direction: vec3<f32>,
-    color: vec3<f32>,
-    angle: f32,
-    attenuation: vec3<f32>,
+    position: vec4<f32>,
+    direction: vec4<f32>,
+    ambient: vec4<f32>,
+    diffuse: vec4<f32>,
+    specular: vec4<f32>,
 };
 
 struct Lights {
+    num_directional: u32,
+    num_point: u32,
+    num_spot: u32,
     length: u32,
     lights: array<Light>,
 };
 
-const LIGHT_POINT: u32 = u32(0);
-const LIGHT_DIRECTIONAL: u32 = u32(1);
-const LIGHT_SPOT: u32 = u32(2);
+struct ShadowMapResult {
+    num_splits: u32,
+    split_depths: array<vec4<f32>, 16>
+};
+
+struct PhongSolidMat {
+    ambient: vec4<f32>,
+    diffuse: vec4<f32>,
+    specular: vec4<f32>,
+}
+
+struct ShadowMapMatrices {
+    cam_split_1: mat4x4<f32>,
+    cam_split_2: mat4x4<f32>,
+    cam_split_3: mat4x4<f32>,
+    proj_split_1: mat4x4<f32>,
+    proj_split_2: mat4x4<f32>,
+    proj_split_3: mat4x4<f32>,
+};
 
 @group(0) @binding(0) var<uniform> camera: mat4x4<f32>;
 @group(0) @binding(1) var<uniform> projection: mat4x4<f32>;
 @group(0) @binding(2) var<uniform> camera_model: mat4x4<f32>;
 
 @group(1) @binding(0) var<storage, read> lights: Lights;
+
+@group(2) @binding(0) var<uniform> material: PhongSolidMat;
+
+@group(3) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
+@group(3) @binding(1) var smap_sampler: sampler;
+@group(3) @binding(2) var smap: texture_depth_2d_array;
+@group(3) @binding(3) var<uniform> smap_result: ShadowMapResult;
 
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
@@ -36,7 +65,6 @@ struct Instance {
     @location(7) model_invt_c1: vec4<f32>,
     @location(8) model_invt_c2: vec4<f32>,
     @location(9) model_invt_c3: vec4<f32>,
-    @location(10) albedo: vec3<f32>,
 }
 
 struct VertexOutput {
@@ -44,36 +72,7 @@ struct VertexOutput {
     @location(0) normal: vec4<f32>,
     @location(1) w_pos: vec4<f32>,
     @location(2) c_pos: vec4<f32>,
-    @location(3) albedo: vec3<f32>,
 };
-
-struct PhongSettings {
-    ambientStrength: f32,
-    diffuseStrength: f32,
-    specularStrength: f32,
-    specularCoeff: f32,
-};
-
-@group(2) @binding(0) var<uniform> settings: PhongSettings;
-
-struct ShadowMapResult {
-    num_splits: u32,
-    split_depths: array<vec4<f32>, 16>
-};
-
-struct ShadowMapMatrices {
-    cam_split_1: mat4x4<f32>,
-    cam_split_2: mat4x4<f32>,
-    cam_split_3: mat4x4<f32>,
-    proj_split_1: mat4x4<f32>,
-    proj_split_2: mat4x4<f32>,
-    proj_split_3: mat4x4<f32>,
-};
-
-@group(3) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
-@group(3) @binding(1) var smap_sampler: sampler;
-@group(3) @binding(2) var smap: texture_depth_2d_array;
-@group(3) @binding(3) var<uniform> smap_result: ShadowMapResult;
 
 @vertex
 fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
@@ -89,16 +88,71 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
     out.normal = normalize(inv_model_t * vec4(v.normal_v, 0.0));
     out.w_pos = world_v;
     out.c_pos = camera_v;
-    out.albedo = i.albedo;
 
     return out;
 }
 
+fn calculateShadow(in: VertexOutput, lightDir: vec3<f32>) -> f32 {
+    var shadow = 0.0;
+    var split = -1;
+    var light_cam_mats = array<mat4x4<f32>, 3>(smap_matrices.cam_split_1, smap_matrices.cam_split_2, smap_matrices.cam_split_3);
+    var light_proj_mats = array<mat4x4<f32>, 3>(smap_matrices.proj_split_1, smap_matrices.proj_split_2, smap_matrices.proj_split_3);
 
-fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
-    var ambientStrength = settings.ambientStrength;
-    var diffuseStrength = settings.diffuseStrength;
-    var specularStrength = settings.specularStrength;
+    for (var i = 0; i < i32(smap_result.num_splits); i += 1) {
+        if abs(in.c_pos.z) < smap_result.split_depths[i].x {
+            split = i;
+                break;
+        }
+    }
+
+    if split > -1 {
+        var l_pos = light_proj_mats[split] * light_cam_mats[split] * in.w_pos;
+        var lightPos = (l_pos.xyz / l_pos.w);
+        var lightDepth = lightPos.z;
+
+        var texSize = textureDimensions(smap).xy;
+        var texelSize = vec2(1.0 / f32(texSize.x), 1.0 / f32(texSize.y));
+        var bias = max(0.01 * (1.0 - dot(in.normal.xyz, lightDir)), 0.001);
+        var texelPos = lightPos.xy;
+
+            // Percentage Closer Filtering with 3x3.
+        for (var x = -1; x <= 1; x += 1) {
+            for (var y = -1; y <= 1; y += 1) {
+                var shadowDepth = textureSample(smap, smap_sampler, (texelPos + vec2(f32(x), f32(y)) * texelSize) * vec2(0.5, -0.5) + 0.5, split);
+                if (lightDepth - bias) > shadowDepth {
+                    shadow += 1.0;
+                }
+            }
+        }
+        shadow /= 9.0;
+
+        if lightDepth > 1.0 {
+            shadow = 0.0;
+        }
+    }
+
+    return shadow;
+}
+
+
+fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> {
+    var ambientColor = material.ambient.xyz;
+    var diffuseColor = material.diffuse.xyz;
+    var specularColor = material.specular.xyz;
+
+    var lightAmbient = light.ambient.xyz;
+    var lightDiffuse = light.diffuse.xyz;
+    var lightSpecular = light.specular.xyz;
+
+    var attenuationConstant = light.ambient.w;
+    var attenuationLinear = light.diffuse.w;
+    var attenuationQuadratic = light.specular.w;
+
+    var lightPosition = light.position.xyz;
+    var lightDirection = light.direction.xyz;
+
+    var shininess = material.specular.w;
+
     var viewPos = camera_model[3].xyz;
 
     var lightDir = vec3(0.0, 0.0, 0.0);
@@ -107,65 +161,26 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     var attenuation = 1.0;
     var lightDistance = 0.0;
 
-    if light.light_type == LIGHT_DIRECTIONAL {
-        lightDir = -light.direction;
-    } else if light.light_type == LIGHT_POINT || light.light_type == LIGHT_SPOT {
-        lightDir = normalize(light.position - in.w_pos.xyz);
-        lightDistance = length(light.position - in.w_pos.xyz);
+    var shadow = 0.0;
+    if light_type == LIGHT_DIRECTIONAL {
+        lightDir = -lightDirection;
+        shadow = calculateShadow(in, lightDir);
+    } else if light_type == LIGHT_POINT || light_type == LIGHT_SPOT {
+        lightDir = normalize(lightPosition - in.w_pos.xyz);
+        lightDistance = length(lightPosition - in.w_pos.xyz);
 
-        attenuation = 1.0 / (light.attenuation.x + light.attenuation.y * lightDistance + light.attenuation.z * lightDistance * lightDistance);
+        attenuation = 1.0 / (attenuationConstant + attenuationLinear * lightDistance + attenuationQuadratic * lightDistance * lightDistance);
     } else {
         return vec3<f32>(0.0, 0.0, 0.0);
     }
 
-    color += attenuation * ambientStrength * light.color;
+    color += lightAmbient * ambientColor;
 
-    var shadow = 0.0;
-    if light.light_type == LIGHT_DIRECTIONAL {
-        var split = -1;
-        var light_cam_mats = array<mat4x4<f32>, 3>(smap_matrices.cam_split_1, smap_matrices.cam_split_2, smap_matrices.cam_split_3);
-        var light_proj_mats = array<mat4x4<f32>, 3>(smap_matrices.proj_split_1, smap_matrices.proj_split_2, smap_matrices.proj_split_3);
-
-        for (var i = 0; i < i32(smap_result.num_splits); i += 1) {
-            if abs(in.c_pos.z) < smap_result.split_depths[i].x {
-                split = i;
-                break;
-            }
-        }
-
-        if split > -1 {
-            var l_pos = light_proj_mats[split] * light_cam_mats[split] * in.w_pos;
-            var lightPos = (l_pos.xyz / l_pos.w);
-            var lightDepth = lightPos.z;
-
-            var texSize = textureDimensions(smap).xy;
-
-            var texelSize = vec2(1.0 / f32(texSize.x), 1.0 / f32(texSize.y));
-
-            var bias = max(0.01 * (1.0 - dot(in.normal.xyz, lightDir)), 0.001);
-            var texelPos = lightPos.xy;
-
-            // Percentage Closer Filtering with 3x3.
-            for (var x = -1; x <= 1; x += 1) {
-                for (var y = -1; y <= 1; y += 1) {
-                    var shadowDepth = textureSample(smap, smap_sampler, (texelPos + vec2(f32(x), f32(y)) * texelSize) * vec2(0.5, -0.5) + 0.5, split);
-                    if (lightDepth - bias) > shadowDepth {
-                        shadow += 1.0;
-                    }
-                }
-            }
-            shadow /= 9.0;
-
-            if lightDepth > 1.0 {
-                shadow = 0.0;
-            }
-        }
-    }
-
-    if light.light_type == LIGHT_SPOT {
+    if light_type == LIGHT_SPOT {
         // This is a cosine between lightDir and spotDir.
-        var theta = dot(lightDir, normalize(-light.direction));
-        var epsilon = cos(light.angle);
+        var theta = dot(lightDir, normalize(-lightDirection));
+        var angle = light.position.w;
+        var epsilon = cos(angle);
 
         if theta <= epsilon {
             return color;
@@ -173,11 +188,11 @@ fn calculateLight(in: VertexOutput, light: Light) -> vec3<f32> {
     }
 
     var diffuseCoeff = max(dot(in.normal.xyz, lightDir), 0.0);
-    color += (1.0 - shadow) * attenuation * diffuseCoeff * light.color;
+    color += diffuseColor * ((1.0 - shadow) * attenuation * diffuseCoeff * lightDiffuse);
     var viewDir = normalize(viewPos - in.w_pos.xyz);
     var reflectDir = reflect(-lightDir, in.normal.xyz);
-    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), settings.specularCoeff);
-    color += (1.0 - shadow) * attenuation * specularStrength * specularCoeff * light.color;
+    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
+    color += specularColor * ((1.0 - shadow) * attenuation * specularCoeff * lightSpecular);
 
     return color;
 }
@@ -188,9 +203,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lightColor = vec3<f32>(1.0, 1.0, 1.0);
     var color = vec3(0.0, 0.0, 0.0);
 
-    for (var i = 0; u32(i) < lights.length; i = i + 1) {
-        color += calculateLight(in, lights.lights[i]);
+    for (var i = 0; u32(i) < lights.num_directional; i = i + 1) {
+        color += calculateLight(in, lights.lights[i], LIGHT_DIRECTIONAL);
     }
 
-    return vec4(color, 1.0) * vec4(in.albedo, 1.0);
+    for (var i = u32(0); i < lights.num_point; i = i + 1) {
+        color += calculateLight(in, lights.lights[i + lights.num_directional], LIGHT_POINT);
+    }
+
+    for (var i = u32(0); i < lights.num_spot; i = i + 1) {
+        color += calculateLight(in, lights.lights[i + lights.num_directional + lights.num_point], LIGHT_SPOT);
+    }
+
+    return vec4(color, 1.0);
 }

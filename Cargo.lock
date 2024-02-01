@@ -736,6 +736,7 @@ dependencies = [
  "image",
  "itertools",
  "nalgebra",
+ "tobj",
  "tokio",
  "wgpu",
  "winit",
@@ -1799,6 +1800,15 @@ dependencies = [
  "arrayref",
  "bytemuck",
  "strict-num",
+]
+
+[[package]]
+name = "tobj"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f7ca3ec0405b0f2f95e0dbcced28882190dc79b0dac63ff82533d256d770223"
+dependencies = [
+ "ahash",
 ]
 
 [[package]]
