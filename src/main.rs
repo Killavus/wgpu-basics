@@ -23,6 +23,7 @@ use camera::Camera;
 
 mod camera;
 mod gpu;
+mod loader;
 mod material;
 mod mesh;
 mod phong_light;
@@ -34,6 +35,8 @@ mod scene_uniform;
 mod shadow_pass;
 mod shapes;
 mod skybox_pass;
+
+use loader::ObjLoader;
 
 use phong_light::PhongLightScene;
 use phong_pass::PhongPass;
@@ -56,7 +59,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let mut scene = Scene::default();
     let mut material_atlas = MaterialAtlas::new(&gpu);
+    let teapot_mesh = ObjLoader::load("./models/teapot.obj", &mut material_atlas)?;
 
+    let teapot = scene.load_model(SceneModelBuilder::default().with_meshes(teapot_mesh));
     let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));
     let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_mesh]));
 
@@ -141,6 +146,36 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         light_gray,
     );
 
+    scene.add_object_with_material(
+        teapot,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
+                * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+                * na::Matrix4::new_scaling(1.0),
+        ),
+        lily,
+    );
+
+    scene.add_object_with_material(
+        teapot,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(-2.0, 0.0, -10.0))
+                * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+                * na::Matrix4::new_scaling(1.0),
+        ),
+        lily,
+    );
+
+    scene.add_object_with_material(
+        teapot,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.0, -22.0))
+                * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
+                * na::Matrix4::new_scaling(1.0),
+        ),
+        lily,
+    );
+
     let gpu_scene = GpuScene::new(&gpu, scene)?;
 
     let (sky_width, sky_height, sky_data) = [
@@ -198,27 +233,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     });
-
-    // teapots.add(
-    //     na::Matrix4::new_translation(&na::Vector3::new(0.0, 0.0, -2.0))
-    //         * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-    //         * na::Matrix4::new_scaling(1.0),
-    //     na::Vector3::new(0.5, 0.5, 1.0),
-    // );
-
-    // teapots.add(
-    //     na::Matrix4::new_translation(&na::Vector3::new(-2.0, 0.0, -10.0))
-    //         * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-    //         * na::Matrix4::new_scaling(1.0),
-    //     na::Vector3::new(0.5, 0.5, 1.0),
-    // );
-
-    // teapots.add(
-    //     na::Matrix4::new_translation(&na::Vector3::new(-6.0, 0.0, -22.0))
-    //         * na::Matrix4::new_rotation(na::Vector3::y() * 33.0f32.to_radians())
-    //         * na::Matrix4::new_scaling(1.0),
-    //     na::Vector3::new(0.5, 0.5, 1.0),
-    // );
 
     let projection_mat =
         na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
