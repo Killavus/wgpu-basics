@@ -5,8 +5,10 @@ use nalgebra as na;
 
 pub struct PostprocessPass {
     bg: wgpu::BindGroup,
+    bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
     settings_buf: wgpu::Buffer,
+    sampler: wgpu::Sampler,
     texture: wgpu::Texture,
 }
 
@@ -154,11 +156,58 @@ impl PostprocessPass {
             });
 
         Ok(Self {
+            sampler,
+            bgl,
             bg,
             pipeline,
             settings_buf,
             texture,
         })
+    }
+
+    pub fn on_resize(&mut self, gpu: &Gpu, new_size: (u32, u32)) {
+        let tex_size = wgpu::Extent3d {
+            width: new_size.0,
+            height: new_size.1,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: tex_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: gpu.swapchain_format(),
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &texture.create_view(&wgpu::TextureViewDescriptor::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(
+                        self.settings_buf.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
+        });
+
+        self.texture = texture;
+        self.bg = bg;
     }
 
     pub fn render(&self, gpu: &Gpu, frame: wgpu::SurfaceTexture) -> wgpu::SurfaceTexture {

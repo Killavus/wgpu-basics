@@ -283,7 +283,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         shadow_pass.out_bind_group_layout(),
     )?;
 
-    let postprocess_pass =
+    let mut postprocess_pass =
         PostprocessPass::new(&gpu, PostprocessSettings::new(1.0, 0.0, 1.0, 0.45))?;
 
     let skybox_pass = SkyboxPass::new(&gpu, &scene_uniform, skybox_tex, skybox_sampler)?;
@@ -307,6 +307,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     WindowEvent::Resized(new_size) => {
                         // Reconfigure the surface with the new size
                         gpu.on_resize((new_size.width, new_size.height));
+                        postprocess_pass.on_resize(gpu, (new_size.width, new_size.height));
                         window.request_redraw();
                     }
                     WindowEvent::CloseRequested => {
