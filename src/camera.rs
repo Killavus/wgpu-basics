@@ -70,10 +70,6 @@ impl Camera {
 
         na::Matrix4::look_at_rh(&position_now, &self.target(), &na::Vector3::y())
     }
-
-    pub fn into_gpu(self, device: &wgpu::Device) -> GpuCamera {
-        GpuCamera::new(self, device).unwrap()
-    }
 }
 
 pub struct GpuCamera {

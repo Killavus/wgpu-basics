@@ -176,7 +176,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     scene.add_object(
         maya,
         Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
-            6.0, 0.0, 14.0,
+            1.0, 0.0, 3.0,
         ))),
     );
 
