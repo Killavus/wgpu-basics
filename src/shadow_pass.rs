@@ -167,7 +167,7 @@ impl DirectionalShadowPass {
                 label: None,
                 layout: Some(&pipelinel),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: &pnuv_shader,
                     entry_point: "vs_main",
                     buffers: &[
                         Mesh::pnuv_vertex_layout(),

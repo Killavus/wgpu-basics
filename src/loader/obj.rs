@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{
     gpu::Gpu,
-    material::MaterialAtlas,
+    material::{MaterialAtlas, MaterialId},
     mesh::{Geometry, Mesh, MeshBuilder, NormalSource},
 };
 
@@ -25,7 +25,7 @@ impl ObjLoader {
         path: impl AsRef<Path>,
         gpu: &Gpu,
         material_atlas: &mut MaterialAtlas,
-    ) -> Result<Vec<Mesh>> {
+    ) -> Result<(Vec<Mesh>, Vec<MaterialId>)> {
         let (models, materials) = tobj::load_obj(path.as_ref(), &tobj::LoadOptions::default())
             .context("failed to load obj file")?;
 
@@ -33,7 +33,7 @@ impl ObjLoader {
 
         let mut local_materials = Vec::with_capacity(materials.len());
 
-        for material in materials {
+        for material in materials.iter() {
             let is_phong_solid = material.diffuse.is_some() && material.ambient.is_some();
             let is_phong_textured = material.diffuse_texture.is_some();
 
@@ -47,29 +47,31 @@ impl ObjLoader {
 
                 local_materials.push((
                     material.name.clone(),
-                    material_atlas.add_phong_solid(gpu, ambient, diffuse, specular),
+                    material_atlas.add_phong_solid(gpu, ambient, diffuse, specular)?,
                 ));
             } else if is_phong_textured {
                 let diffuse_texture = material
                     .diffuse_texture
+                    .as_ref()
                     .map(|tex_path| {
                         let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
                         base_path.join(tex_path)
                     })
                     .unwrap();
 
-                let specular = material.specular_texture.map(|tex_path| {
+                let specular = material.specular_texture.as_ref().map(|tex_path| {
                     let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
                     base_path.join(tex_path)
                 });
 
                 local_materials.push((
                     material.name.clone(),
-                    material_atlas.add_phong_textured(gpu, &diffuse_texture, specular.as_ref()),
+                    material_atlas.add_phong_textured(gpu, &diffuse_texture, specular.as_ref())?,
                 ));
             }
         }
 
+        let mut mesh_materials = vec![];
         let mut meshes = vec![];
         for model in models {
             let indexed = !model.mesh.indices.is_empty();
@@ -96,9 +98,21 @@ impl ObjLoader {
                 builder = builder.with_texture_uvs(flat_to_v2(&model.mesh.texcoords));
             }
 
+            if let Some(mat_idx) = model.mesh.material_id {
+                let material = &materials[mat_idx].name;
+
+                let material_id = local_materials
+                    .iter()
+                    .find(|(name, _)| name == material)
+                    .map(|o| o.1)
+                    .unwrap();
+
+                mesh_materials.push(material_id);
+            }
+
             meshes.push(builder.build()?);
         }
 
-        Ok(meshes)
+        Ok((meshes, mesh_materials))
     }
 }

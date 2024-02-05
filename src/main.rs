@@ -59,12 +59,18 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let mut scene = Scene::default();
     let mut material_atlas = MaterialAtlas::new(&gpu);
-    let teapot_mesh = ObjLoader::load("./models/teapot.obj", &gpu, &mut material_atlas)?;
-    let maya = ObjLoader::load("./models/maya/maya.obj", &gpu, &mut material_atlas)?;
+    let (teapot_mesh, _) = ObjLoader::load("./models/teapot.obj", &gpu, &mut material_atlas)?;
+    let (maya_mesh, maya_materials) =
+        ObjLoader::load("./models/maya/maya.obj", &gpu, &mut material_atlas)?;
 
     let teapot = scene.load_model(SceneModelBuilder::default().with_meshes(teapot_mesh));
     let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));
     let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_mesh]));
+    let maya = scene.load_model(
+        SceneModelBuilder::default()
+            .with_meshes(maya_mesh)
+            .with_local_materials(maya_materials),
+    );
 
     let light_gray = material_atlas.add_phong_solid(
         &gpu,
@@ -165,6 +171,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                 * na::Matrix4::new_scaling(1.0),
         ),
         lily,
+    );
+
+    scene.add_object(
+        maya,
+        Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
+            6.0, 0.0, 14.0,
+        ))),
     );
 
     let gpu_scene = GpuScene::new(&gpu, scene)?;
