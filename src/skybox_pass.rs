@@ -9,11 +9,8 @@ use anyhow::Result;
 pub struct SkyboxPass {
     bg: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
-    bgl: wgpu::BindGroupLayout,
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
-    skybox_tex: wgpu::Texture,
-    skybox_sampler: wgpu::Sampler,
 }
 
 impl SkyboxPass {
@@ -134,11 +131,8 @@ impl SkyboxPass {
         Ok(Self {
             bg,
             pipeline,
-            bgl,
             vbuf,
             ibuf,
-            skybox_tex,
-            skybox_sampler,
         })
     }
 
