@@ -34,7 +34,6 @@ mod scene_uniform;
 mod shadow_pass;
 mod shapes;
 mod skybox_pass;
-mod world_model;
 
 use phong_light::PhongLightScene;
 use phong_pass::PhongPass;
@@ -243,6 +242,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(0.1, 0.1, 0.1),
         na::Vector3::new(0.5, 0.5, 0.5),
         na::Vector3::new(1.0, 1.0, 1.0),
+    );
+
+    lights.new_spot(
+        na::Vector3::new(0.0, 10.0, 0.0),
+        na::Vector3::new(0.0, -1.0, 0.0),
+        na::Vector3::new(0.1, 0.1, 0.1),
+        na::Vector3::new(0.3, 0.2, 0.8),
+        na::Vector3::new(0.4, 0.4, 0.4),
+        30.0f32.to_radians(),
+        na::Vector3::new(1.0, 0.09, 0.032),
     );
 
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
