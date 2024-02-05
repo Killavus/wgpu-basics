@@ -266,7 +266,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &gpu,
         &scene_uniform,
         &lights,
-        &material_atlas.layouts.phong_solid,
+        &material_atlas,
         shadow_pass.out_bind_group_layout(),
     )?;
 

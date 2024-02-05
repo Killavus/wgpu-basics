@@ -1,7 +1,7 @@
 use crate::{
     gpu::Gpu,
     material::MaterialAtlas,
-    mesh::{Mesh, PN_SLOTS},
+    mesh::{Mesh, MeshVertexArrayType},
     phong_light::PhongLightScene,
     scene::{GpuScene, Instance},
     scene_uniform::SceneUniform,
@@ -10,19 +10,16 @@ use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
 
 pub struct PhongPass {
-    // pipelines: PhongPipelines,
-    pass_bgl: wgpu::BindGroupLayout,
-    pass_bg: wgpu::BindGroup,
+    lights_bg: wgpu::BindGroup,
     light_buf: wgpu::Buffer,
-    pipeline: wgpu::RenderPipeline,
-    pipeline_layout: wgpu::PipelineLayout,
-    shader: wgpu::ShaderModule,
+    pipelines: PhongPipelines,
 }
 
 struct PhongPipelines {
     solid: wgpu::RenderPipeline,
+    solid_shader: wgpu::ShaderModule,
     textured: wgpu::RenderPipeline,
-    textured_normal: wgpu::RenderPipeline,
+    textured_shader: wgpu::ShaderModule,
 }
 
 impl PhongPass {
@@ -30,7 +27,7 @@ impl PhongPass {
         gpu: &Gpu,
         scene_uniform: &SceneUniform,
         lights: &PhongLightScene,
-        material_bgl: &wgpu::BindGroupLayout,
+        material_atlas: &MaterialAtlas,
         shadow_bgl: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
         use wgpu::util::DeviceExt;
@@ -48,7 +45,8 @@ impl PhongPass {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        let shader = gpu.shader_from_file("./shaders/phong.wgsl")?;
+        let solid_shader = gpu.shader_from_file("./shaders/phong.wgsl")?;
+        let textured_shader = gpu.shader_from_file("./shaders/phongTextured.wgsl")?;
 
         // Lights buffer:
         let lights_bgl = gpu
@@ -76,26 +74,39 @@ impl PhongPass {
             }],
         });
 
-        let pipeline_layout = gpu
+        let solid_layout = gpu
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
                     scene_uniform.layout(),
                     &lights_bgl,
-                    &material_bgl,
+                    &material_atlas.layouts.phong_solid,
                     &shadow_bgl,
                 ],
                 push_constant_ranges: &[],
             });
 
-        let pipeline = gpu
+        let textured_layout = gpu
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    scene_uniform.layout(),
+                    &lights_bgl,
+                    &material_atlas.layouts.phong_textured,
+                    &shadow_bgl,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let pipeline_solid = gpu
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
-                layout: Some(&pipeline_layout),
+                layout: Some(&solid_layout),
                 vertex: wgpu::VertexState {
-                    module: &shader,
+                    module: &solid_shader,
                     entry_point: "vs_main",
                     buffers: &[
                         Mesh::pn_vertex_layout(),
@@ -103,7 +114,7 @@ impl PhongPass {
                     ],
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader,
+                    module: &solid_shader,
                     entry_point: "fs_main",
                     targets: &[Some(gpu.swapchain_format().into())],
                 }),
@@ -124,13 +135,52 @@ impl PhongPass {
                 multiview: None,
             });
 
+        let pipeline_textured =
+            gpu.device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: None,
+                    layout: Some(&textured_layout),
+                    vertex: wgpu::VertexState {
+                        module: &textured_shader,
+                        entry_point: "vs_main",
+                        buffers: &[
+                            Mesh::pnuv_vertex_layout(),
+                            Instance::pnuv_model_instance_layout(),
+                        ],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &textured_shader,
+                        entry_point: "fs_main",
+                        targets: &[Some(gpu.swapchain_format().into())],
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: Some(wgpu::Face::Back),
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: true,
+                        depth_compare: wgpu::CompareFunction::Less,
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview: None,
+                });
+
+        let pipelines = PhongPipelines {
+            solid: pipeline_solid,
+            solid_shader,
+            textured: pipeline_textured,
+            textured_shader,
+        };
+
         Ok(Self {
-            pass_bgl: lights_bgl,
-            pass_bg: lights_bg,
+            lights_bg,
             light_buf,
-            pipeline,
-            pipeline_layout,
-            shader,
+            pipelines,
         })
     }
 
@@ -175,12 +225,16 @@ impl PhongPass {
                 occlusion_query_set: None,
             });
 
-            rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, scene_uniform.bind_group(), &[]);
-            rpass.set_bind_group(1, &self.pass_bg, &[]);
+            rpass.set_bind_group(1, &self.lights_bg, &[]);
             rpass.set_bind_group(3, shadow_bg, &[]);
 
             for draw_call in scene.draw_calls() {
+                match draw_call.vertex_array_type {
+                    MeshVertexArrayType::PNUV => rpass.set_pipeline(&self.pipelines.textured),
+                    MeshVertexArrayType::PN => rpass.set_pipeline(&self.pipelines.solid),
+                };
+
                 rpass.set_bind_group(2, atlas.bind_group(draw_call.material_id), &[]);
 
                 rpass.set_vertex_buffer(

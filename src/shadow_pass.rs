@@ -7,7 +7,7 @@ use nalgebra as na;
 use crate::{
     camera::GpuCamera,
     gpu::Gpu,
-    mesh::{Mesh, PN_SLOTS},
+    mesh::{Mesh, MeshVertexArrayType},
     phong_light::PhongLight,
     projection::wgpu_projection,
     scene::{GpuScene, Instance},
@@ -16,6 +16,7 @@ use crate::{
 pub struct DirectionalShadowPass {
     splits: [f32; SPLIT_COUNT],
     pipeline: wgpu::RenderPipeline,
+    pnuv_pipeline: wgpu::RenderPipeline,
     bg: wgpu::BindGroup,
     depth_tex: wgpu::Texture,
     proj_mat_buf: wgpu::Buffer,
@@ -119,6 +120,8 @@ impl DirectionalShadowPass {
         });
 
         let shader = gpu.shader_from_file("./shaders/shadowMap.wgsl")?;
+        let pnuv_shader = gpu.shader_from_file("./shaders/shadowMapPNUV.wgsl")?;
+
         let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
         let offset = mat4_size.max(MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT);
 
@@ -156,6 +159,36 @@ impl DirectionalShadowPass {
                 label: None,
                 bind_group_layouts: &[&bgl],
                 push_constant_ranges: &[],
+            });
+
+        let pnuv_pipeline = gpu
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&pipelinel),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[
+                        Mesh::pnuv_vertex_layout(),
+                        Instance::pnuv_model_instance_layout(),
+                    ],
+                },
+                fragment: None,
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
             });
 
         let pipeline = gpu
@@ -350,6 +383,7 @@ impl DirectionalShadowPass {
 
         Ok(Self {
             splits,
+            pnuv_pipeline,
             pipeline,
             bg,
             proj_mat_buf,
@@ -474,7 +508,6 @@ impl DirectionalShadowPass {
                     occlusion_query_set: None,
                 });
 
-                rpass.set_pipeline(&self.pipeline);
                 rpass.set_bind_group(
                     0,
                     &self.bg,
@@ -482,6 +515,15 @@ impl DirectionalShadowPass {
                 );
 
                 for draw_call in scene.draw_calls() {
+                    match draw_call.vertex_array_type {
+                        MeshVertexArrayType::PN => {
+                            rpass.set_pipeline(&self.pipeline);
+                        }
+                        MeshVertexArrayType::PNUV => {
+                            rpass.set_pipeline(&self.pnuv_pipeline);
+                        }
+                    }
+
                     rpass.set_vertex_buffer(
                         0,
                         scene
