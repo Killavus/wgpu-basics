@@ -8,6 +8,7 @@ struct MeshVertexAttributes {
     texture: Option<TextureUV>,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 pub enum MeshVertexArrayType {
     PN,
@@ -95,7 +96,7 @@ impl Mesh {
         };
 
         index_buffer.reserve(faces.len());
-        index_buffer.extend_from_slice(&faces);
+        index_buffer.extend_from_slice(faces);
     }
 
     pub fn num_vertices(&self) -> usize {

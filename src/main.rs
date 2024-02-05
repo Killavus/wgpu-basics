@@ -59,55 +59,46 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let mut scene = Scene::default();
     let mut material_atlas = MaterialAtlas::new(&gpu);
-    let teapot_mesh = ObjLoader::load("./models/teapot.obj", &mut material_atlas)?;
+    let teapot_mesh = ObjLoader::load("./models/teapot.obj", &gpu, &mut material_atlas)?;
+    let maya = ObjLoader::load("./models/maya/maya.obj", &gpu, &mut material_atlas)?;
 
     let teapot = scene.load_model(SceneModelBuilder::default().with_meshes(teapot_mesh));
     let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));
     let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_mesh]));
 
-    let light_gray = material_atlas.add_material(
+    let light_gray = material_atlas.add_phong_solid(
         &gpu,
-        Material::PhongSolid {
-            albedo: na::Vector4::new(0.6, 0.6, 0.6, 0.1),
-            diffuse: na::Vector4::new(0.6, 0.6, 0.6, 0.7),
-            specular: na::Vector4::new(0.6, 0.6, 0.6, 32.0),
-        },
+        na::Vector4::new(0.6, 0.6, 0.6, 0.1),
+        na::Vector4::new(0.6, 0.6, 0.6, 0.7),
+        na::Vector4::new(0.6, 0.6, 0.6, 32.0),
     )?;
 
-    let lily = material_atlas.add_material(
+    let lily = material_atlas.add_phong_solid(
         &gpu,
-        Material::PhongSolid {
-            albedo: na::Vector4::new(0.5, 0.5, 1.0, 0.0),
-            diffuse: na::Vector4::new(0.5, 0.5, 1.0, 0.0),
-            specular: na::Vector4::new(0.5, 0.5, 1.0, 16.0),
-        },
+        na::Vector4::new(0.5, 0.5, 1.0, 0.0),
+        na::Vector4::new(0.5, 0.5, 1.0, 0.0),
+        na::Vector4::new(0.5, 0.5, 1.0, 16.0),
     )?;
 
-    let quite_red = material_atlas.add_material(
+    let quite_red = material_atlas.add_phong_solid(
         &gpu,
-        Material::PhongSolid {
-            albedo: na::Vector4::new(0.8, 0.2, 0.2, 0.1),
-            diffuse: na::Vector4::new(0.8, 0.2, 0.2, 0.7),
-            specular: na::Vector4::new(0.8, 0.2, 0.2, 32.0),
-        },
+        na::Vector4::new(0.8, 0.2, 0.2, 0.1),
+        na::Vector4::new(0.8, 0.2, 0.2, 0.7),
+        na::Vector4::new(0.8, 0.2, 0.2, 32.0),
     )?;
 
-    let white = material_atlas.add_material(
+    let white = material_atlas.add_phong_solid(
         &gpu,
-        Material::PhongSolid {
-            albedo: na::Vector4::new(1.0, 1.0, 1.0, 0.1),
-            diffuse: na::Vector4::new(1.0, 1.0, 1.0, 0.7),
-            specular: na::Vector4::new(1.0, 1.0, 1.0, 32.0),
-        },
+        na::Vector4::new(1.0, 1.0, 1.0, 0.1),
+        na::Vector4::new(1.0, 1.0, 1.0, 0.7),
+        na::Vector4::new(1.0, 1.0, 1.0, 32.0),
     )?;
 
-    let toxic_green = material_atlas.add_material(
+    let toxic_green = material_atlas.add_phong_solid(
         &gpu,
-        Material::PhongSolid {
-            albedo: na::Vector4::new(0.2, 0.8, 0.4, 0.0),
-            diffuse: na::Vector4::new(0.2, 0.8, 0.4, 0.0),
-            specular: na::Vector4::new(0.2, 0.8, 0.4, 32.0),
-        },
+        na::Vector4::new(0.2, 0.8, 0.4, 0.0),
+        na::Vector4::new(0.2, 0.8, 0.4, 0.0),
+        na::Vector4::new(0.2, 0.8, 0.4, 32.0),
     )?;
 
     scene.add_object_with_material(
