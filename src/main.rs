@@ -1,6 +1,6 @@
 use anyhow::Result;
 use image::EncodableLayout;
-use material::{Material, MaterialAtlas};
+use material::MaterialAtlas;
 use mesh::MeshBuilder;
 use nalgebra as na;
 
