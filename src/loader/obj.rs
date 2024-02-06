@@ -36,6 +36,7 @@ impl ObjLoader {
         for material in materials.iter() {
             let is_phong_solid = material.diffuse.is_some() && material.ambient.is_some();
             let is_phong_textured = material.diffuse_texture.is_some();
+            let is_phong_textured_normal = is_phong_textured && material.normal_texture.is_some();
 
             if is_phong_solid {
                 let ambient = material.ambient.unwrap();
@@ -48,6 +49,39 @@ impl ObjLoader {
                 local_materials.push((
                     material.name.clone(),
                     material_atlas.add_phong_solid(gpu, ambient, diffuse, specular)?,
+                ));
+            } else if is_phong_textured_normal {
+                let diffuse_texture = material
+                    .diffuse_texture
+                    .as_ref()
+                    .map(|tex_path| {
+                        let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
+                        base_path.join(tex_path)
+                    })
+                    .unwrap();
+
+                let specular = material.specular_texture.as_ref().map(|tex_path| {
+                    let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
+                    base_path.join(tex_path)
+                });
+
+                let normal = material
+                    .normal_texture
+                    .as_ref()
+                    .map(|tex_path| {
+                        let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
+                        base_path.join(tex_path)
+                    })
+                    .unwrap();
+
+                local_materials.push((
+                    material.name.clone(),
+                    material_atlas.add_phong_textured_normal(
+                        gpu,
+                        &diffuse_texture,
+                        specular.as_ref(),
+                        &normal,
+                    )?,
                 ));
             } else if is_phong_textured {
                 let diffuse_texture = material

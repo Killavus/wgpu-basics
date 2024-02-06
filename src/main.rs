@@ -262,14 +262,22 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         na::Vector3::new(1.0, 1.0, 1.0),
     );
 
-    lights.new_spot(
-        na::Vector3::new(0.0, 10.0, 0.0),
-        na::Vector3::new(0.0, -1.0, 0.0),
+    // lights.new_spot(
+    //     na::Vector3::new(0.0, 10.0, 0.0),
+    //     na::Vector3::new(0.0, -1.0, 0.0),
+    //     na::Vector3::new(0.1, 0.1, 0.1),
+    //     na::Vector3::new(0.3, 0.2, 0.8),
+    //     na::Vector3::new(0.4, 0.4, 0.4),
+    //     30.0f32.to_radians(),
+    //     na::Vector3::new(1.0, 0.09, 0.032),
+    // );
+
+    lights.new_point(
+        na::Vector3::new(1.0, 0.5, 4.0),
         na::Vector3::new(0.1, 0.1, 0.1),
-        na::Vector3::new(0.3, 0.2, 0.8),
-        na::Vector3::new(0.4, 0.4, 0.4),
-        30.0f32.to_radians(),
-        na::Vector3::new(1.0, 0.09, 0.032),
+        na::Vector3::new(0.8, 0.1, 0.1),
+        na::Vector3::new(0.8, 0.1, 0.1),
+        na::Vector3::new(1.0, 0.09, 0.0032),
     );
 
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);

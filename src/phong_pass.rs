@@ -20,6 +20,8 @@ struct PhongPipelines {
     solid_shader: wgpu::ShaderModule,
     textured: wgpu::RenderPipeline,
     textured_shader: wgpu::ShaderModule,
+    textured_normal: wgpu::RenderPipeline,
+    textured_normal_shader: wgpu::ShaderModule,
 }
 
 impl PhongPass {
@@ -47,6 +49,7 @@ impl PhongPass {
 
         let solid_shader = gpu.shader_from_file("./shaders/phong.wgsl")?;
         let textured_shader = gpu.shader_from_file("./shaders/phongTextured.wgsl")?;
+        let textured_normal_shader = gpu.shader_from_file("./shaders/phongTexturedNormal.wgsl")?;
 
         // Lights buffer:
         let lights_bgl = gpu
@@ -99,6 +102,19 @@ impl PhongPass {
                 ],
                 push_constant_ranges: &[],
             });
+
+        let textured_normal_layout =
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[
+                        scene_uniform.layout(),
+                        &lights_bgl,
+                        &material_atlas.layouts.phong_textured_normal,
+                        &shadow_bgl,
+                    ],
+                    push_constant_ranges: &[],
+                });
 
         let pipeline_solid = gpu
             .device
@@ -170,11 +186,48 @@ impl PhongPass {
                     multiview: None,
                 });
 
+        let pipeline_textured_normal =
+            gpu.device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: None,
+                    layout: Some(&textured_normal_layout),
+                    vertex: wgpu::VertexState {
+                        module: &textured_normal_shader,
+                        entry_point: "vs_main",
+                        buffers: &[
+                            Mesh::pnuv_vertex_layout(),
+                            Instance::pnuv_model_instance_layout(),
+                        ],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &textured_normal_shader,
+                        entry_point: "fs_main",
+                        targets: &[Some(gpu.swapchain_format().into())],
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: Some(wgpu::Face::Back),
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: true,
+                        depth_compare: wgpu::CompareFunction::Less,
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview: None,
+                });
+
         let pipelines = PhongPipelines {
             solid: pipeline_solid,
             solid_shader,
             textured: pipeline_textured,
             textured_shader,
+            textured_normal: pipeline_textured_normal,
+            textured_normal_shader,
         };
 
         Ok(Self {
@@ -231,7 +284,13 @@ impl PhongPass {
 
             for draw_call in scene.draw_calls() {
                 match draw_call.vertex_array_type {
-                    MeshVertexArrayType::PNUV => rpass.set_pipeline(&self.pipelines.textured),
+                    MeshVertexArrayType::PNUV => {
+                        if atlas.is_normal_mapped(draw_call.material_id) {
+                            rpass.set_pipeline(&self.pipelines.textured_normal)
+                        } else {
+                            rpass.set_pipeline(&self.pipelines.textured)
+                        }
+                    }
                     MeshVertexArrayType::PN => rpass.set_pipeline(&self.pipelines.solid),
                 };
 

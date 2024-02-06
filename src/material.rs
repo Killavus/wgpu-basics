@@ -11,6 +11,7 @@ type FVec4 = na::Vector4<f32>;
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug)]
 pub struct MaterialId(usize);
 
+#[allow(clippy::enum_variant_names)]
 pub enum Material {
     PhongSolid {
         // w unused
@@ -24,6 +25,11 @@ pub enum Material {
         diffuse: wgpu::Texture,
         specular: Option<wgpu::Texture>,
     },
+    PhongTexturedNormal {
+        diffuse: wgpu::Texture,
+        normal: wgpu::Texture,
+        specular: Option<wgpu::Texture>,
+    },
 }
 
 #[derive(ShaderType)]
@@ -33,12 +39,16 @@ struct GpuPhongSolidRepr {
     specular: FVec4,
 }
 
+#[allow(clippy::enum_variant_names)]
 enum GpuMaterial {
     PhongSolid {
         buffer: wgpu::Buffer,
         bind_group: wgpu::BindGroup,
     },
     PhongTextured {
+        bind_group: wgpu::BindGroup,
+    },
+    PhongTexturedNormal {
         bind_group: wgpu::BindGroup,
     },
 }
@@ -116,6 +126,43 @@ impl GpuMaterial {
 
                 Ok(Self::PhongTextured { bind_group: bg })
             }
+            Material::PhongTexturedNormal {
+                diffuse,
+                specular,
+                normal,
+            } => {
+                let diffuse_view = diffuse.create_view(&wgpu::TextureViewDescriptor::default());
+                let normal_view = normal.create_view(&wgpu::TextureViewDescriptor::default());
+                let specular_view = specular
+                    .as_ref()
+                    .unwrap_or(&default_textures.black)
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Material::PhongTexturedNormalBindGroup"),
+                    layout: &layouts.phong_textured_normal,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&diffuse_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&specular_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&normal_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&default_textures.sampler),
+                        },
+                    ],
+                });
+
+                Ok(Self::PhongTextured { bind_group: bg })
+            }
         }
     }
 
@@ -123,6 +170,7 @@ impl GpuMaterial {
         match self {
             Self::PhongSolid { bind_group, .. } => bind_group,
             Self::PhongTextured { bind_group, .. } => bind_group,
+            Self::PhongTexturedNormal { bind_group, .. } => bind_group,
         }
     }
 }
@@ -137,6 +185,7 @@ pub struct MaterialAtlas {
 pub struct MaterialAtlasLayouts {
     pub phong_solid: wgpu::BindGroupLayout,
     pub phong_textured: wgpu::BindGroupLayout,
+    pub phong_textured_normal: wgpu::BindGroupLayout,
 }
 
 pub struct MaterialAtlasTextureDefaults {
@@ -278,9 +327,54 @@ impl MaterialAtlasLayouts {
                     ],
                 });
 
+        let phong_textured_normal =
+            gpu.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("MaterialAtlas::PhongTexturedNormalLayout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+
         Self {
             phong_solid,
             phong_textured,
+            phong_textured_normal,
         }
     }
 }
@@ -324,6 +418,37 @@ impl MaterialAtlas {
         };
 
         self.add_material(gpu, Material::PhongTextured { diffuse, specular })
+    }
+
+    pub fn add_phong_textured_normal(
+        &mut self,
+        gpu: &Gpu,
+        diffuse: impl AsRef<Path>,
+        specular: Option<impl AsRef<Path>>,
+        normal: impl AsRef<Path>,
+    ) -> Result<MaterialId> {
+        let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?);
+        let normal = Self::gpu_texture(gpu, Self::load_texture(normal)?);
+        let specular = match specular {
+            Some(path) => Some(Self::gpu_texture(gpu, Self::load_texture(path)?)),
+            None => None,
+        };
+
+        self.add_material(
+            gpu,
+            Material::PhongTexturedNormal {
+                diffuse,
+                specular,
+                normal,
+            },
+        )
+    }
+
+    pub fn is_normal_mapped(&self, material_id: MaterialId) -> bool {
+        matches!(
+            self.materials[material_id.0],
+            Material::PhongTexturedNormal { .. }
+        )
     }
 
     fn load_texture(path: impl AsRef<Path>) -> Result<image::RgbaImage> {
