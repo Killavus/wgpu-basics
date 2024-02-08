@@ -12,16 +12,16 @@ use crate::{
 use anyhow::Result;
 use nalgebra as na;
 
-pub fn teapot_scene(
-    gpu: &Gpu,
-) -> Result<(
+type TestScene = (
     Scene,
     MaterialAtlas,
     PhongLightScene,
     GpuCamera,
     GpuProjection,
     na::Matrix4<f32>,
-)> {
+);
+
+pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let mut scene = Scene::default();
     let mut material_atlas = MaterialAtlas::new(gpu);
 
@@ -199,6 +199,68 @@ pub fn teapot_scene(
         lights,
         camera,
         projection,
-        projection_mat,
+        wgpu_projection(projection_mat),
+    ))
+}
+
+pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
+    let mut scene = Scene::default();
+    let mut material_atlas = MaterialAtlas::new(gpu);
+
+    let plane_uv = MeshBuilder::new()
+        .with_geometry(Plane::geometry())
+        .with_texture_uvs(Plane::uvs())
+        .build()?;
+
+    let brickwall_material = material_atlas.add_phong_textured_normal(
+        gpu,
+        "./textures/brickwall_diffuse.jpg",
+        None::<&'static str>,
+        "./textures/brickwall_normal.jpg",
+    )?;
+
+    let brickwall = scene.load_model(
+        SceneModelBuilder::default()
+            .with_meshes(vec![plane_uv])
+            .with_local_materials(vec![brickwall_material]),
+    );
+
+    let mut lights = PhongLightScene::default();
+    lights.new_point(
+        na::Vector3::new(0.5, 1.0, 0.3),
+        na::Vector3::new(0.1, 0.1, 0.1),
+        na::Vector3::new(1.0, 1.0, 1.0),
+        na::Vector3::new(1.0, 1.0, 1.0),
+        na::Vector3::new(1.0, 0.7, 1.8),
+    );
+
+    scene.add_object(
+        brickwall,
+        Instance::new_model(na::Matrix4::new_rotation(
+            na::Vector3::x() * 90.0f32.to_radians(),
+        )),
+    );
+
+    let camera = GpuCamera::new(
+        Camera::new(
+            na::Point3::new(0.0, 0.0, 3.0),
+            0.0f32.to_radians(),
+            270.0f32.to_radians(),
+        ),
+        &gpu.device,
+    )?;
+
+    let projection_mat =
+        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
+
+    let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
+
+    Ok((
+        scene,
+        material_atlas,
+        lights,
+        camera,
+        projection,
+        wgpu_projection(projection_mat),
     ))
 }

@@ -38,11 +38,13 @@ const TILT_DELTA: f32 = 1.0;
 
 use gpu::Gpu;
 
+use crate::phong_light::PhongLight;
+
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
     let (scene, material_atlas, lights, mut camera, projection, projection_mat) =
-        test_scenes::teapot_scene(&gpu)?;
+        test_scenes::normal_mapping_test(&gpu)?;
 
     let gpu_scene = GpuScene::new(&gpu, scene)?;
 
@@ -144,10 +146,19 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         target.exit();
                     }
                     WindowEvent::RedrawRequested => {
+                        use nalgebra as na;
                         let spass_bg = shadow_pass
                             .render(
                                 gpu,
-                                &lights.directional[0],
+                                &lights
+                                    .directional
+                                    .get(0)
+                                    .unwrap_or(&PhongLight::new_directional(
+                                        na::Vector3::zeros(),
+                                        na::Vector3::zeros(),
+                                        na::Vector3::zeros(),
+                                        na::Vector3::zeros(),
+                                    )),
                                 &camera,
                                 &projection_mat,
                                 &gpu_scene,
@@ -160,7 +171,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             &gpu_scene,
                             spass_bg,
                         );
-                        let frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                        // let frame = skybox_pass.render(gpu, &scene_uniform, frame);
                         let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();
