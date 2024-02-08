@@ -208,7 +208,7 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
     let mut material_atlas = MaterialAtlas::new(gpu);
 
     let plane_uv = MeshBuilder::new()
-        .with_geometry(Plane::geometry())
+        .with_geometry(Plane::geometry_tan_space())
         .with_texture_uvs(Plane::uvs())
         .build()?;
 

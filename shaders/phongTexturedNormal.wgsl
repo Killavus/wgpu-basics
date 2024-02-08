@@ -52,19 +52,21 @@ struct ShadowMapMatrices {
 struct VertexIn {
     @location(0) model_v: vec3<f32>,
     @location(1) normal_v: vec3<f32>,
-    @location(2) uv: vec2<f32>,
+    @location(2) tangent_v: vec3<f32>,
+    @location(3) bitangent_v: vec3<f32>,
+    @location(4) uv: vec2<f32>,
 };
 
 struct Instance {
-    @location(3) model_c0: vec4<f32>,
-    @location(4) model_c1: vec4<f32>,
-    @location(5) model_c2: vec4<f32>,
-    @location(6) model_c3: vec4<f32>,
-    @location(7) model_invt_c0: vec4<f32>,
-    @location(8) model_invt_c1: vec4<f32>,
-    @location(9) model_invt_c2: vec4<f32>,
-    @location(10) model_invt_c3: vec4<f32>,
-}
+    @location(5) model_c0: vec4<f32>,
+    @location(6) model_c1: vec4<f32>,
+    @location(7) model_c2: vec4<f32>,
+    @location(8) model_c3: vec4<f32>,
+    @location(9) model_invt_c0: vec4<f32>,
+    @location(10) model_invt_c1: vec4<f32>,
+    @location(11) model_invt_c2: vec4<f32>,
+    @location(12) model_invt_c3: vec4<f32>,
+};
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,

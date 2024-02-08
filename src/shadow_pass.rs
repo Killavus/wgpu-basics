@@ -17,6 +17,7 @@ pub struct DirectionalShadowPass {
     splits: [f32; SPLIT_COUNT],
     pipeline: wgpu::RenderPipeline,
     pnuv_pipeline: wgpu::RenderPipeline,
+    pntbuv_pipeline: wgpu::RenderPipeline,
     bg: wgpu::BindGroup,
     depth_tex: wgpu::Texture,
     proj_mat_buf: wgpu::Buffer,
@@ -121,6 +122,7 @@ impl DirectionalShadowPass {
 
         let shader = gpu.shader_from_file("./shaders/shadowMap.wgsl")?;
         let pnuv_shader = gpu.shader_from_file("./shaders/shadowMapPNUV.wgsl")?;
+        let pntbuv_shader = gpu.shader_from_file("./shaders/shadowMapPNTBUV.wgsl")?;
 
         let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
         let offset = mat4_size.max(MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT);
@@ -172,6 +174,36 @@ impl DirectionalShadowPass {
                     buffers: &[
                         Mesh::pnuv_vertex_layout(),
                         Instance::pnuv_model_instance_layout(),
+                    ],
+                },
+                fragment: None,
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            });
+
+        let pntbuv_pipeline = gpu
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&pipelinel),
+                vertex: wgpu::VertexState {
+                    module: &pntbuv_shader,
+                    entry_point: "vs_main",
+                    buffers: &[
+                        Mesh::pntbuv_vertex_layout(),
+                        Instance::pntbuv_model_instance_layout(),
                     ],
                 },
                 fragment: None,
@@ -383,6 +415,7 @@ impl DirectionalShadowPass {
 
         Ok(Self {
             splits,
+            pntbuv_pipeline,
             pnuv_pipeline,
             pipeline,
             bg,
@@ -521,6 +554,9 @@ impl DirectionalShadowPass {
                         }
                         MeshVertexArrayType::PNUV => {
                             rpass.set_pipeline(&self.pnuv_pipeline);
+                        }
+                        MeshVertexArrayType::PNTBUV => {
+                            rpass.set_pipeline(&self.pntbuv_pipeline);
                         }
                     }
 

@@ -3,7 +3,7 @@ type FVec4 = na::Vector4<f32>;
 type FVec3 = na::Vector3<f32>;
 type FVec2 = na::Vector2<f32>;
 
-use crate::mesh::{Geometry, NormalSource};
+use crate::mesh::{Geometry, NormalSource, TangentSpaceInformation};
 
 pub struct Plane;
 
@@ -12,7 +12,7 @@ impl Plane {
         Self
     }
 
-    pub fn geometry() -> Geometry {
+    fn raw_geometry() -> (Vec<na::Vector3<f32>>, Vec<na::Vector3<f32>>, Vec<u32>) {
         let mut mesh = vec![];
         let mut faces = vec![];
 
@@ -38,7 +38,26 @@ impl Plane {
         faces.push(3);
         faces.push(1);
 
-        Geometry::new_indexed(mesh, NormalSource::Provided(normals.to_vec()), faces)
+        (mesh, normals.to_vec(), faces)
+    }
+
+    pub fn geometry_tan_space() -> Geometry {
+        let (mesh, normals, faces) = Self::raw_geometry();
+
+        Geometry::new_indexed(
+            mesh,
+            NormalSource::Provided(normals.to_vec()),
+            faces,
+            Some(TangentSpaceInformation {
+                texture_uvs: Self::uvs(),
+            }),
+        )
+    }
+
+    pub fn geometry() -> Geometry {
+        let (mesh, normals, faces) = Self::raw_geometry();
+
+        Geometry::new_indexed(mesh, NormalSource::Provided(normals.to_vec()), faces, None)
     }
 
     pub fn uvs() -> Vec<FVec2> {
@@ -55,6 +74,25 @@ pub struct Cube;
 
 impl Cube {
     pub fn geometry() -> Geometry {
+        let (mesh, normals, faces) = Self::raw_geometry();
+
+        Geometry::new_indexed(mesh, NormalSource::Provided(normals), faces, None)
+    }
+
+    pub fn geometry_tan_space() -> Geometry {
+        let (mesh, normals, faces) = Self::raw_geometry();
+
+        Geometry::new_indexed(
+            mesh,
+            NormalSource::Provided(normals),
+            faces,
+            Some(TangentSpaceInformation {
+                texture_uvs: Self::uvs(),
+            }),
+        )
+    }
+
+    fn raw_geometry() -> (Vec<FVec3>, Vec<FVec3>, Vec<u32>) {
         let center = FVec3::zeros();
         let mut mesh = vec![];
         let mut faces = vec![];
@@ -117,7 +155,7 @@ impl Cube {
             .map(|v| (v - center).normalize())
             .collect();
 
-        Geometry::new_indexed(mesh, NormalSource::Provided(normals), faces)
+        (mesh, normals, faces)
     }
 
     pub fn uvs() -> Vec<FVec2> {

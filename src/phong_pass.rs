@@ -195,8 +195,8 @@ impl PhongPass {
                         module: &textured_normal_shader,
                         entry_point: "vs_main",
                         buffers: &[
-                            Mesh::pnuv_vertex_layout(),
-                            Instance::pnuv_model_instance_layout(),
+                            Mesh::pntbuv_vertex_layout(),
+                            Instance::pntbuv_model_instance_layout(),
                         ],
                     },
                     fragment: Some(wgpu::FragmentState {
@@ -284,12 +284,9 @@ impl PhongPass {
 
             for draw_call in scene.draw_calls() {
                 match draw_call.vertex_array_type {
-                    MeshVertexArrayType::PNUV => {
-                        if atlas.is_normal_mapped(draw_call.material_id) {
-                            rpass.set_pipeline(&self.pipelines.textured_normal)
-                        } else {
-                            rpass.set_pipeline(&self.pipelines.textured)
-                        }
+                    MeshVertexArrayType::PNUV => rpass.set_pipeline(&self.pipelines.textured),
+                    MeshVertexArrayType::PNTBUV => {
+                        rpass.set_pipeline(&self.pipelines.textured_normal)
                     }
                     MeshVertexArrayType::PN => rpass.set_pipeline(&self.pipelines.solid),
                 };

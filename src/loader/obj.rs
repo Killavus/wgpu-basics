@@ -121,9 +121,10 @@ impl ObjLoader {
                     flat_to_v3(&model.mesh.positions),
                     normal_source,
                     model.mesh.indices,
+                    None,
                 )
             } else {
-                Geometry::new_non_indexed(flat_to_v3(&model.mesh.positions), normal_source)
+                Geometry::new_non_indexed(flat_to_v3(&model.mesh.positions), normal_source, None)
             };
 
             let mut builder = MeshBuilder::new().with_geometry(geometry);

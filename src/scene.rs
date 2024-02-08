@@ -6,7 +6,10 @@ type FMat4x4 = na::Matrix4<f32>;
 use crate::{
     gpu::Gpu,
     material::MaterialId,
-    mesh::{Mesh, MeshVertexArrayType, PNUV_SLOTS, PNUV_STRIDE, PN_SLOTS, PN_STRIDE},
+    mesh::{
+        Mesh, MeshVertexArrayType, PNTBUV_SLOTS, PNTBUV_STRIDE, PNUV_SLOTS, PNUV_STRIDE, PN_SLOTS,
+        PN_STRIDE,
+    },
 };
 
 const MAX_INSTANCE_BUFFER_GROWTH: usize = 128;
@@ -90,6 +93,21 @@ impl Instance {
         ],
     };
 
+    const PNTBUV_MODEL_LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: MODEL_INSTANCE_STRIDE as wgpu::BufferAddress,
+        step_mode: wgpu::VertexStepMode::Instance,
+        attributes: &wgpu::vertex_attr_array![
+            PNTBUV_SLOTS => Float32x4,
+            PNTBUV_SLOTS + 1 => Float32x4,
+            PNTBUV_SLOTS + 2 => Float32x4,
+            PNTBUV_SLOTS + 3 => Float32x4,
+            PNTBUV_SLOTS + 4 => Float32x4,
+            PNTBUV_SLOTS + 5 => Float32x4,
+            PNTBUV_SLOTS + 6 => Float32x4,
+            PNTBUV_SLOTS + 7 => Float32x4,
+        ],
+    };
+
     pub fn new_model(model: FMat4x4) -> Self {
         Self {
             model,
@@ -112,6 +130,10 @@ impl Instance {
 
     pub fn pnuv_model_instance_layout() -> wgpu::VertexBufferLayout<'static> {
         Self::PNUV_MODEL_LAYOUT
+    }
+
+    pub fn pntbuv_model_instance_layout() -> wgpu::VertexBufferLayout<'static> {
+        Self::PNTBUV_MODEL_LAYOUT
     }
 }
 
@@ -273,6 +295,7 @@ impl SceneStorage {
 }
 
 struct VertexBuffers {
+    pntbuv_buffer: Option<wgpu::Buffer>,
     pnuv_buffer: Option<wgpu::Buffer>,
     pn_buffer: Option<wgpu::Buffer>,
 }
@@ -282,8 +305,6 @@ struct InstanceBuffers {
     model_ib: Option<wgpu::Buffer>,
 }
 
-use std::collections::HashMap;
-
 pub struct GpuScene {
     instances: Vec<Instance>,
     materials: Vec<MaterialId>,
@@ -292,12 +313,8 @@ pub struct GpuScene {
     index_buffer: wgpu::Buffer,
     draw_buffers: DrawBuffers,
     mesh_descriptors: Vec<MeshDescriptor>,
-    instance_bank_memory_map: HashMap<(usize, MaterialId), CpuMemoryMap>,
-    scene_object_memory_map: SceneObjectInstanceMemory,
     draw_calls: Vec<DrawCall>,
 }
-
-struct SceneObjectInstanceMemory {}
 
 #[derive(Debug)]
 pub struct DrawCall {
@@ -330,16 +347,19 @@ impl GpuScene {
 
         let mut pnuv_vertices = vec![];
         let mut pn_vertices = vec![];
+        let mut pntbuv_vertices = vec![];
 
         for mesh in scene.storage.meshes.iter() {
             let mesh_bank = match mesh.vertex_array_type() {
                 MeshVertexArrayType::PN => &mut pn_vertices,
                 MeshVertexArrayType::PNUV => &mut pnuv_vertices,
+                MeshVertexArrayType::PNTBUV => &mut pntbuv_vertices,
             };
 
             let vertex_stride = match mesh.vertex_array_type() {
                 MeshVertexArrayType::PN => PN_STRIDE,
                 MeshVertexArrayType::PNUV => PNUV_STRIDE,
+                MeshVertexArrayType::PNTBUV => PNTBUV_STRIDE,
             };
 
             let mesh_bank_offset = mesh_bank.len();
@@ -371,8 +391,9 @@ impl GpuScene {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-        let mut pnuv_buffer: Option<wgpu::Buffer> = None;
+        let mut pnuv_buffer = None;
         let mut pn_buffer = None;
+        let mut pntbuv_buffer = None;
 
         use wgpu::util::DeviceExt;
         if !pnuv_vertices.is_empty() {
@@ -397,7 +418,18 @@ impl GpuScene {
             );
         }
 
+        if !pntbuv_vertices.is_empty() {
+            pntbuv_buffer = Some(gpu.device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("PNTBUV Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&pntbuv_vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                },
+            ));
+        }
+
         let vertex_buffers = VertexBuffers {
+            pntbuv_buffer,
             pnuv_buffer,
             pn_buffer,
         };
@@ -597,6 +629,7 @@ impl GpuScene {
         match vertex_type {
             MeshVertexArrayType::PN => self.vertex_buffers.pn_buffer.as_ref().unwrap(),
             MeshVertexArrayType::PNUV => self.vertex_buffers.pnuv_buffer.as_ref().unwrap(),
+            MeshVertexArrayType::PNTBUV => self.vertex_buffers.pntbuv_buffer.as_ref().unwrap(),
         }
     }
 

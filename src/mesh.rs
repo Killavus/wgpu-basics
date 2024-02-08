@@ -97,7 +97,19 @@ impl Mesh {
     }
 
     pub fn vertex_array_type(&self) -> MeshVertexArrayType {
-        self.vertex_attributes.vertex_array_type()
+        let attr_vertex_type = self.vertex_attributes.vertex_array_type();
+
+        match attr_vertex_type {
+            MeshVertexArrayType::PN => MeshVertexArrayType::PN,
+            MeshVertexArrayType::PNUV => {
+                if self.geometry.has_tangent_space() {
+                    MeshVertexArrayType::PNTBUV
+                } else {
+                    MeshVertexArrayType::PNUV
+                }
+            }
+            _ => attr_vertex_type,
+        }
     }
 
     pub fn is_indexed(&self) -> bool {
@@ -186,7 +198,7 @@ pub const PNUV_STRIDE: usize = std::mem::size_of::<FVec3>() * 2 + std::mem::size
 pub const PN_STRIDE: usize = std::mem::size_of::<FVec3>() * 2;
 pub const PNUV_SLOTS: u32 = 3;
 pub const PN_SLOTS: u32 = 2;
-pub const PTBUV_SLOTS: u32 = 5;
+pub const PNTBUV_SLOTS: u32 = 5;
 
 impl MeshBuilder {
     pub fn new() -> Self {
@@ -240,25 +252,27 @@ pub enum NormalSource {
     ComputedFlat,
 }
 
-struct TangentSpaceInformation {
-    texture_uvs: Vec<FVec2>,
+pub struct TangentSpaceInformation {
+    pub texture_uvs: Vec<FVec2>,
 }
 
 impl NormalSource {
     fn into_normals(
         self,
         mesh: &[FVec3],
-        faces_iter: impl Iterator<Item = usize>,
+        faces_iter: impl Iterator<Item = usize> + Clone,
         tangent_space_information: Option<TangentSpaceInformation>,
     ) -> NormalInformation {
         let normals = match self {
             Self::Provided(normals) => normals,
-            Self::ComputedFlat => flat_normals(mesh, faces_iter),
+            Self::ComputedFlat => flat_normals(mesh, faces_iter.clone()),
         };
 
         match tangent_space_information {
             Some(TangentSpaceInformation { texture_uvs }) => {
-                todo!();
+                let (t_vectors, bt_vectors) = tangent_space_vectors(mesh, &texture_uvs, faces_iter);
+
+                NormalInformation::TangentSpace(normals, t_vectors, bt_vectors)
             }
             None => NormalInformation::ModelNormals(normals),
         }
@@ -292,6 +306,19 @@ impl Geometry {
             mesh,
             normals,
             faces,
+        }
+    }
+
+    pub fn has_tangent_space(&self) -> bool {
+        match self {
+            Geometry::Indexed { normals, .. } => match normals {
+                NormalInformation::TangentSpace(_, _, _) => true,
+                _ => false,
+            },
+            Geometry::NonIndexed { normals, .. } => match normals {
+                NormalInformation::TangentSpace(_, _, _) => true,
+                _ => false,
+            },
         }
     }
 
@@ -343,12 +370,9 @@ fn tangent_space_vectors(
     mesh: &[FVec3],
     texture_uvs: &[FVec2],
     mut idx_iter: impl Iterator<Item = usize>,
-    path: &str,
 ) -> (Vec<FVec3>, Vec<FVec3>) {
-    let mut t_vectors = vec![];
-    let mut bt_vectors: Vec<
-        na::Matrix<f32, na::Const<3>, na::Const<1>, na::ArrayStorage<f32, 3, 1>>,
-    > = vec![];
+    let mut t_vectors = vec![na::Vector3::zeros(); mesh.len()];
+    let mut bt_vectors = vec![na::Vector3::zeros(); mesh.len()];
 
     loop {
         let triangle_idx = idx_iter
@@ -359,9 +383,35 @@ fn tangent_space_vectors(
 
         match triangle_idx {
             Some((i0, i1, i2)) => {
-                let v0 = mesh[i0];
-                let v1 = mesh[i1];
-                let v2 = mesh[i2];
+                for (i, (j, k)) in [(i0, (i1, i2)), (i1, (i0, i2)), (i2, (i0, i1))] {
+                    let v0 = mesh[i];
+                    let v1 = mesh[j];
+                    let v2 = mesh[k];
+
+                    let e1 = v1 - v0;
+                    let e2 = v2 - v0;
+
+                    let delta_uv1 = texture_uvs[j] - texture_uvs[i];
+                    let delta_uv2 = texture_uvs[k] - texture_uvs[i];
+
+                    let det = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
+
+                    let mut tangent = FVec3::zeros();
+                    let mut bitangent = FVec3::zeros();
+
+                    tangent.x = det * (delta_uv2.y * e1.x - delta_uv1.y * e2.x);
+                    tangent.y = det * (delta_uv2.y * e1.y - delta_uv1.y * e2.y);
+                    tangent.z = det * (delta_uv2.y * e1.z - delta_uv1.y * e2.z);
+
+                    bitangent.x = det * (-delta_uv2.x * e1.x + delta_uv1.x * e2.x);
+                    bitangent.y = det * (-delta_uv2.x * e1.y + delta_uv1.x * e2.y);
+                    bitangent.z = det * (-delta_uv2.x * e1.z + delta_uv1.x * e2.z);
+
+                    t_vectors[i] += tangent;
+                    t_vectors[i] = t_vectors[i].normalize();
+                    bt_vectors[i] += bitangent;
+                    bt_vectors[i] = bt_vectors[i].normalize();
+                }
             }
             None => {
                 break;
