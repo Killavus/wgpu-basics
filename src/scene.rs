@@ -282,6 +282,8 @@ struct InstanceBuffers {
     model_ib: Option<wgpu::Buffer>,
 }
 
+use std::collections::HashMap;
+
 pub struct GpuScene {
     instances: Vec<Instance>,
     materials: Vec<MaterialId>,
@@ -290,8 +292,12 @@ pub struct GpuScene {
     index_buffer: wgpu::Buffer,
     draw_buffers: DrawBuffers,
     mesh_descriptors: Vec<MeshDescriptor>,
+    instance_bank_memory_map: HashMap<(usize, MaterialId), CpuMemoryMap>,
+    scene_object_memory_map: SceneObjectInstanceMemory,
     draw_calls: Vec<DrawCall>,
 }
+
+struct SceneObjectInstanceMemory {}
 
 #[derive(Debug)]
 pub struct DrawCall {
@@ -592,6 +598,12 @@ impl GpuScene {
             MeshVertexArrayType::PN => self.vertex_buffers.pn_buffer.as_ref().unwrap(),
             MeshVertexArrayType::PNUV => self.vertex_buffers.pnuv_buffer.as_ref().unwrap(),
         }
+    }
+
+    pub fn update_instance<F>(&mut self, scene_object_id: SceneObjectId, updater: F)
+    where
+        F: Fn(&mut Instance) -> Instance,
+    {
     }
 
     pub fn index_buffer(&self) -> &wgpu::Buffer {

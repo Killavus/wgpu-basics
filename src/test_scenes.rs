@@ -227,8 +227,8 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
 
     let mut lights = PhongLightScene::default();
     lights.new_point(
-        na::Vector3::new(0.5, 1.0, 0.3),
-        na::Vector3::new(0.1, 0.1, 0.1),
+        na::Vector3::new(0.5, 0.0, 0.3),
+        na::Vector3::new(0.01, 0.01, 0.01),
         na::Vector3::new(1.0, 1.0, 1.0),
         na::Vector3::new(1.0, 1.0, 1.0),
         na::Vector3::new(1.0, 0.7, 1.8),

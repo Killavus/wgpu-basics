@@ -150,9 +150,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let spass_bg = shadow_pass
                             .render(
                                 gpu,
-                                &lights
+                                lights
                                     .directional
-                                    .get(0)
+                                    .first()
                                     .unwrap_or(&PhongLight::new_directional(
                                         na::Vector3::zeros(),
                                         na::Vector3::zeros(),
