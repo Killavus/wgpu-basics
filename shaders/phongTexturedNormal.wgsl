@@ -209,8 +209,8 @@ fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> 
     var diffuseCoeff = max(dot(normal, lightDir), 0.0);
     color += textureSample(diffuse_t, mat_sampler, in.uv).rgb * ((1.0 - shadow) * attenuation * diffuseCoeff * lightDiffuse);
     var viewDir = normalize(viewPos - in.w_pos.xyz);
-    var reflectDir = reflect(-lightDir, normal);
-    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+    var halfway = normalize(normalize(lightDir) + viewDir);
+    var specularCoeff = pow(max(dot(viewDir, halfway), 0.0), shininess);
     color += textureSample(specular_t, mat_sampler, in.uv).rgb * ((1.0 - shadow) * attenuation * specularCoeff * lightSpecular);
 
     return color;

@@ -23,10 +23,63 @@ type TestScene = (
     HashMap<String, SceneObjectId>,
 );
 
-// pub fn blinn_phong_scene(gpu: &Gpu) -> Result<TestScene> {
-//     let mut scene = Scene::default();
-//     let mut material_atlas = MaterialAtlas::new(gpu);
-// }
+pub fn blinn_phong_scene(gpu: &Gpu) -> Result<TestScene> {
+    let mut scene = Scene::default();
+    let mut material_atlas = MaterialAtlas::new(gpu);
+
+    let plane_uv = MeshBuilder::new()
+        .with_geometry(Plane::geometry())
+        .with_texture_uvs(Plane::uvs().into_iter().map(|uv| uv * 10.0).collect())
+        .build()?;
+
+    let plane_uv = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_uv]));
+    let woodfloor = material_atlas.add_phong_textured(
+        gpu,
+        "./textures/woodfloor_detail.jpg",
+        SpecularTexture::Ideal(8.0),
+    )?;
+
+    scene.add_object_with_material(
+        plane_uv,
+        Instance::new_model(na::Matrix4::new_scaling(100.0)),
+        woodfloor,
+    );
+
+    let projection_mat =
+        na::Matrix4::new_perspective(gpu.aspect_ratio(), 45.0f32.to_radians(), 0.1, 100.0);
+
+    let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
+    let projection_mat = wgpu_projection(projection_mat);
+
+    let mut lights = PhongLightScene::default();
+
+    lights.new_point(
+        na::Vector3::new(0.0, 3.0, 0.0),
+        na::Vector3::new(0.05, 0.05, 0.05),
+        na::Vector3::new(1.0, 1.0, 1.0),
+        na::Vector3::new(0.3, 0.3, 0.3),
+        na::Vector3::new(1.0, 0.09, 0.0018),
+    );
+
+    let mut camera = GpuCamera::new(
+        Camera::new(
+            na::Point3::new(0.0, 18.0, 14.0),
+            -45.0f32.to_radians(),
+            270.0f32.to_radians(),
+        ),
+        &gpu.device,
+    )?;
+
+    Ok((
+        scene,
+        material_atlas,
+        lights,
+        camera,
+        projection,
+        wgpu_projection(projection_mat),
+        HashMap::default(),
+    ))
+}
 
 pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let mut scene = Scene::default();
@@ -75,35 +128,35 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
         gpu,
         na::Vector4::new(0.6, 0.6, 0.6, 0.1),
         na::Vector4::new(0.6, 0.6, 0.6, 0.7),
-        na::Vector4::new(0.6, 0.6, 0.6, 32.0),
+        na::Vector4::new(0.6, 0.6, 0.6, 64.0),
     )?;
 
     let lily = material_atlas.add_phong_solid(
         gpu,
         na::Vector4::new(0.5, 0.5, 1.0, 0.0),
         na::Vector4::new(0.5, 0.5, 1.0, 0.0),
-        na::Vector4::new(0.5, 0.5, 1.0, 16.0),
+        na::Vector4::new(0.5, 0.5, 1.0, 32.0),
     )?;
 
     let quite_red = material_atlas.add_phong_solid(
         gpu,
         na::Vector4::new(0.8, 0.2, 0.2, 0.1),
         na::Vector4::new(0.8, 0.2, 0.2, 0.7),
-        na::Vector4::new(0.8, 0.2, 0.2, 32.0),
+        na::Vector4::new(0.8, 0.2, 0.2, 16.0),
     )?;
 
     let white = material_atlas.add_phong_solid(
         gpu,
         na::Vector4::new(1.0, 1.0, 1.0, 0.1),
         na::Vector4::new(1.0, 1.0, 1.0, 0.7),
-        na::Vector4::new(1.0, 1.0, 1.0, 32.0),
+        na::Vector4::new(1.0, 1.0, 1.0, 64.0),
     )?;
 
     let toxic_green = material_atlas.add_phong_solid(
         gpu,
         na::Vector4::new(0.2, 0.8, 0.4, 0.0),
         na::Vector4::new(0.2, 0.8, 0.4, 0.0),
-        na::Vector4::new(0.2, 0.8, 0.4, 32.0),
+        na::Vector4::new(0.2, 0.2, 0.4, 64.0),
     )?;
 
     let brickwall_nmap = material_atlas.add_phong_textured_normal(
@@ -215,7 +268,7 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
         na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
         na::Vector3::new(0.1, 0.1, 0.1),
         na::Vector3::new(0.5, 0.5, 0.5),
-        na::Vector3::new(1.0, 1.0, 1.0),
+        na::Vector3::new(0.3, 0.3, 0.3),
     );
 
     lights.new_spot(

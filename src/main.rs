@@ -33,7 +33,7 @@ mod test_scenes;
 
 use phong_pass::PhongPass;
 
-const MOVE_DELTA: f32 = 0.25;
+const MOVE_DELTA: f32 = 1.0;
 const TILT_DELTA: f32 = 1.0;
 
 use gpu::Gpu;
