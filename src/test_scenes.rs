@@ -1,7 +1,7 @@
 use crate::{
     camera::{Camera, GpuCamera},
     gpu::Gpu,
-    loader::ObjLoader,
+    loader::{ObjLoader, ObjLoaderSettings},
     material::MaterialAtlas,
     mesh::MeshBuilder,
     phong_light::PhongLightScene,
@@ -31,9 +31,22 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let plane_mesh = MeshBuilder::new()
         .with_geometry(Plane::geometry())
         .build()?;
-    let (teapot_mesh, _) = ObjLoader::load("./models/teapot.obj", gpu, &mut material_atlas)?;
-    let (maya_mesh, maya_materials) =
-        ObjLoader::load("./models/maya/maya.obj", gpu, &mut material_atlas)?;
+    let (teapot_mesh, _) = ObjLoader::load(
+        "./models/teapot.obj",
+        gpu,
+        &mut material_atlas,
+        ObjLoaderSettings {
+            calculate_tangent_space: false,
+        },
+    )?;
+    let (maya_mesh, maya_materials) = ObjLoader::load(
+        "./models/maya/maya.obj",
+        gpu,
+        &mut material_atlas,
+        ObjLoaderSettings {
+            calculate_tangent_space: true,
+        },
+    )?;
 
     let teapot = scene.load_model(SceneModelBuilder::default().with_meshes(teapot_mesh));
     let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));

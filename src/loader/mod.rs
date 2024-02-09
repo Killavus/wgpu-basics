@@ -1,3 +1,3 @@
 mod obj;
 
-pub use obj::ObjLoader;
+pub use obj::{ObjLoader, ObjLoaderSettings};

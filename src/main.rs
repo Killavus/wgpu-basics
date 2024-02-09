@@ -44,9 +44,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
-        test_scenes::normal_mapping_test(&gpu)?;
+        test_scenes::teapot_scene(&gpu)?;
 
-    let mut gpu_scene = GpuScene::new(&gpu, scene)?;
+    let gpu_scene = GpuScene::new(&gpu, scene)?;
 
     let (sky_width, sky_height, sky_data) = [
         image::open("./textures/skybox/posx.jpg")?,
@@ -155,15 +155,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let time_ms = (time - last_time).as_secs_f32();
                         let tick = 1.0 / 60.0;
                         let tick_delta = time_ms / tick;
-
-                        gpu_scene.update_instance(gpu, scene_objects["brickwall"], |i| {
-                            i.set_model(
-                                i.model()
-                                    * na::Matrix4::new_rotation(
-                                        na::Vector3::x() * (1.0f32 * tick_delta).to_radians(),
-                                    ),
-                            );
-                        });
 
                         let spass_bg = shadow_pass
                             .render(

@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::{
     gpu::Gpu,
     material::{MaterialAtlas, MaterialId},
-    mesh::{Geometry, Mesh, MeshBuilder, NormalSource},
+    mesh::{Geometry, Mesh, MeshBuilder, NormalSource, TangentSpaceInformation},
 };
 
 pub struct ObjLoader;
@@ -20,11 +20,16 @@ fn flat_to_v2(v: &[f32]) -> Vec<na::Vector2<f32>> {
     v.chunks(2).map(|c| na::Vector2::new(c[0], c[1])).collect()
 }
 
+pub struct ObjLoaderSettings {
+    pub calculate_tangent_space: bool,
+}
+
 impl ObjLoader {
     pub fn load(
         path: impl AsRef<Path>,
         gpu: &Gpu,
         material_atlas: &mut MaterialAtlas,
+        settings: ObjLoaderSettings,
     ) -> Result<(Vec<Mesh>, Vec<MaterialId>)> {
         let (models, materials) = tobj::load_obj(path.as_ref(), &tobj::LoadOptions::default())
             .context("failed to load obj file")?;
@@ -107,7 +112,17 @@ impl ObjLoader {
 
         let mut mesh_materials = vec![];
         let mut meshes = vec![];
-        for model in models {
+
+        for (idx, model) in models.into_iter().enumerate() {
+            let mut tan_space_info = None;
+            if settings.calculate_tangent_space
+                && material_atlas.is_normal_mapped(local_materials[idx].1)
+            {
+                tan_space_info = Some(TangentSpaceInformation {
+                    texture_uvs: flat_to_v2(&model.mesh.texcoords),
+                });
+            }
+
             let indexed = !model.mesh.indices.is_empty();
             let textured = !model.mesh.texcoords.is_empty();
             let normal_source = if !model.mesh.normals.is_empty() {
@@ -121,10 +136,14 @@ impl ObjLoader {
                     flat_to_v3(&model.mesh.positions),
                     normal_source,
                     model.mesh.indices,
-                    None,
+                    tan_space_info,
                 )
             } else {
-                Geometry::new_non_indexed(flat_to_v3(&model.mesh.positions), normal_source, None)
+                Geometry::new_non_indexed(
+                    flat_to_v3(&model.mesh.positions),
+                    normal_source,
+                    tan_space_info,
+                )
             };
 
             let mut builder = MeshBuilder::new().with_geometry(geometry);
