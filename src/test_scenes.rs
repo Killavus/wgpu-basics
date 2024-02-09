@@ -6,11 +6,12 @@ use crate::{
     mesh::MeshBuilder,
     phong_light::PhongLightScene,
     projection::{wgpu_projection, GpuProjection},
-    scene::{Instance, Scene, SceneModelBuilder},
+    scene::{Instance, Scene, SceneModelBuilder, SceneObjectId},
     shapes::{Cube, Plane},
 };
 use anyhow::Result;
 use nalgebra as na;
+use std::collections::HashMap;
 
 type TestScene = (
     Scene,
@@ -19,6 +20,7 @@ type TestScene = (
     GpuCamera,
     GpuProjection,
     na::Matrix4<f32>,
+    HashMap<String, SceneObjectId>,
 );
 
 pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
@@ -200,6 +202,7 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
         camera,
         projection,
         wgpu_projection(projection_mat),
+        HashMap::default(),
     ))
 }
 
@@ -212,6 +215,10 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
         .with_texture_uvs(Plane::uvs())
         .build()?;
 
+    let plane = MeshBuilder::new()
+        .with_geometry(Plane::geometry())
+        .build()?;
+
     let brickwall_material = material_atlas.add_phong_textured_normal(
         gpu,
         "./textures/brickwall_diffuse.jpg",
@@ -219,22 +226,41 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
         "./textures/brickwall_normal.jpg",
     )?;
 
+    let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane]));
+
     let brickwall = scene.load_model(
         SceneModelBuilder::default()
             .with_meshes(vec![plane_uv])
             .with_local_materials(vec![brickwall_material]),
     );
 
+    let yellow = material_atlas.add_phong_solid(
+        gpu,
+        na::Vector4::new(1.0, 1.0, 0.0, 0.0),
+        na::Vector4::new(0.0, 0.0, 0.0, 0.0),
+        na::Vector4::new(0.0, 0.0, 0.0, 32.0),
+    )?;
+
+    scene.add_object_with_material(
+        plane,
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(0.5, 1.0, 0.3))
+                * na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians())
+                * na::Matrix4::new_scaling(0.2),
+        ),
+        yellow,
+    );
+
     let mut lights = PhongLightScene::default();
     lights.new_point(
-        na::Vector3::new(0.5, 0.0, 0.3),
-        na::Vector3::new(0.01, 0.01, 0.01),
+        na::Vector3::new(0.5, 1.0, 0.3),
+        na::Vector3::new(0.1, 0.1, 0.1),
         na::Vector3::new(1.0, 1.0, 1.0),
-        na::Vector3::new(1.0, 1.0, 1.0),
+        na::Vector3::new(0.2, 0.2, 0.2),
         na::Vector3::new(1.0, 0.7, 1.8),
     );
 
-    scene.add_object(
+    let wall = scene.add_object(
         brickwall,
         Instance::new_model(na::Matrix4::new_rotation(
             na::Vector3::x() * 90.0f32.to_radians(),
@@ -255,6 +281,9 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
 
     let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
 
+    let mut scene_stuff = HashMap::new();
+    scene_stuff.insert("brickwall".to_string(), wall);
+
     Ok((
         scene,
         material_atlas,
@@ -262,5 +291,6 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
         camera,
         projection,
         wgpu_projection(projection_mat),
+        scene_stuff,
     ))
 }

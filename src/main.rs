@@ -43,10 +43,10 @@ use crate::phong_light::PhongLight;
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
-    let (scene, material_atlas, lights, mut camera, projection, projection_mat) =
+    let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
         test_scenes::normal_mapping_test(&gpu)?;
 
-    let gpu_scene = GpuScene::new(&gpu, scene)?;
+    let mut gpu_scene = GpuScene::new(&gpu, scene)?;
 
     let (sky_width, sky_height, sky_data) = [
         image::open("./textures/skybox/posx.jpg")?,
@@ -77,7 +77,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -127,6 +127,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut dragging = false;
     let mut drag_origin: Option<(f64, f64)> = None;
 
+    let time = std::time::Instant::now();
+    let mut last_time = time.elapsed();
+
     event_loop
         .run(move |event, target| {
             use winit::keyboard::KeyCode;
@@ -147,6 +150,21 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     }
                     WindowEvent::RedrawRequested => {
                         use nalgebra as na;
+                        let time = time.elapsed();
+
+                        let time_ms = (time - last_time).as_secs_f32();
+                        let tick = 1.0 / 60.0;
+                        let tick_delta = time_ms / tick;
+
+                        gpu_scene.update_instance(gpu, scene_objects["brickwall"], |i| {
+                            i.set_model(
+                                i.model()
+                                    * na::Matrix4::new_rotation(
+                                        na::Vector3::x() * (1.0f32 * tick_delta).to_radians(),
+                                    ),
+                            );
+                        });
+
                         let spass_bg = shadow_pass
                             .render(
                                 gpu,
@@ -175,6 +193,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                         let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();
+                        last_time = time;
                         window.request_redraw();
                     }
                     WindowEvent::MouseInput { state, button, .. } => {

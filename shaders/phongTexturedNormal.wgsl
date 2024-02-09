@@ -170,7 +170,8 @@ fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> 
         lightDir = normalize(lightPosition - in.w_pos.xyz);
         lightDistance = length(lightPosition - in.w_pos.xyz);
 
-        attenuation = 1.0 / (attenuationConstant + attenuationLinear * lightDistance + attenuationQuadratic * lightDistance * lightDistance);
+        // attenuation = 1.0 / (attenuationConstant + attenuationLinear * lightDistance + attenuationQuadratic * lightDistance * lightDistance);
+        attenuation = 1.0;
     } else {
         return vec3<f32>(0.0, 0.0, 0.0);
     }
@@ -192,7 +193,7 @@ fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> 
     color += textureSample(diffuse_t, mat_sampler, in.uv).rgb * ((1.0 - shadow) * attenuation * diffuseCoeff * lightDiffuse);
     var viewDir = normalize(viewPos - in.w_pos.xyz);
     var reflectDir = reflect(-lightDir, normal);
-    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
+    var specularCoeff = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
     color += textureSample(specular_t, mat_sampler, in.uv).rgb * ((1.0 - shadow) * attenuation * specularCoeff * lightSpecular);
 
     return color;
@@ -215,6 +216,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     for (var i = u32(0); i < lights.num_spot; i = i + 1) {
         color += calculateLight(in, lights.lights[i + lights.num_directional + lights.num_point], LIGHT_SPOT);
     }
+
+    color /= f32(lights.length);
 
     return vec4(color, 1.0);
 }

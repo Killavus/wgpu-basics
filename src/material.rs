@@ -8,7 +8,7 @@ use crate::gpu::Gpu;
 
 type FVec4 = na::Vector4<f32>;
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug, Hash)]
 pub struct MaterialId(usize);
 
 #[allow(clippy::enum_variant_names)]

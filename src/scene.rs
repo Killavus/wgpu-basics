@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use nalgebra as na;
 
@@ -17,7 +19,6 @@ const MAX_INSTANCE_BUFFER_GROWTH: usize = 128;
 struct ModelDescriptor {
     mesh_r: (usize, usize),
     local_material_r: Option<(usize, usize)>,
-    local_instances_r: Option<(usize, usize)>,
 }
 
 pub const MODEL_INSTANCE_STRIDE: usize = std::mem::size_of::<FMat4x4>() * 2;
@@ -116,6 +117,15 @@ impl Instance {
         }
     }
 
+    pub fn model(&self) -> FMat4x4 {
+        self.model
+    }
+
+    pub fn set_model(&mut self, v: FMat4x4) {
+        self.model = v;
+        self.model_invt = v.try_inverse().unwrap().transpose();
+    }
+
     pub fn update_from_object(self, object_instance: &Instance) -> Self {
         Self::new_model(object_instance.model * self.model)
     }
@@ -170,24 +180,9 @@ impl Scene {
             self.storage.instances.len() + mesh_count,
         );
 
-        let mut remaining_instances = mesh_count;
-        if let Some((local_instance_s, local_instance_e)) =
-            self.storage.model_descriptors[model.0].local_instances_r
-        {
-            let local_transforms = self.storage.instances[local_instance_s..local_instance_e]
-                .iter()
-                .map(|local_instance| local_instance.update_from_object(&instance))
-                .collect::<Vec<_>>();
-
-            self.storage.instances.extend(local_transforms);
-            remaining_instances = mesh_count - (local_instance_e - local_instance_s);
-        }
-
-        if remaining_instances > 0 {
-            self.storage
-                .instances
-                .extend(std::iter::repeat(instance).take(remaining_instances));
-        }
+        self.storage
+            .instances
+            .extend(std::iter::repeat(instance).take(mesh_count));
 
         mesh_transforms_r
     }
@@ -225,23 +220,18 @@ struct SceneObject {
     model_idx: usize,
 }
 
+#[derive(Clone, Copy)]
 pub struct SceneObjectId(usize);
 
 #[derive(Default)]
 pub struct SceneModelBuilder {
     meshes: Vec<Mesh>,
-    local_instances: Option<Vec<Instance>>,
     local_materials: Option<Vec<MaterialId>>,
 }
 
 impl SceneModelBuilder {
     pub fn with_meshes(mut self, meshes: Vec<Mesh>) -> Self {
         self.meshes = meshes;
-        self
-    }
-
-    pub fn with_local_instances(mut self, instances: Vec<Instance>) -> Self {
-        self.local_instances = Some(instances);
         self
     }
 
@@ -261,16 +251,6 @@ impl SceneStorage {
             self.meshes.push(mesh);
         }
 
-        let mut local_transform_r = None;
-        if let Some(instances) = builder.local_instances {
-            local_transform_r =
-                Some((self.instances.len(), self.instances.len() + instances.len()));
-
-            for instance in instances {
-                self.instances.push(instance);
-            }
-        }
-
         let mut local_material_r = None;
         if let Some(materials) = builder.local_materials {
             local_material_r = Some((
@@ -287,7 +267,6 @@ impl SceneStorage {
         self.model_descriptors.push(ModelDescriptor {
             mesh_r,
             local_material_r,
-            local_instances_r: local_transform_r,
         });
 
         SceneModel(model_idx)
@@ -308,11 +287,13 @@ struct InstanceBuffers {
 pub struct GpuScene {
     instances: Vec<Instance>,
     materials: Vec<MaterialId>,
+    scene_objects: Vec<SceneObject>,
     vertex_buffers: VertexBuffers,
     instance_buffers: InstanceBuffers,
     index_buffer: wgpu::Buffer,
     draw_buffers: DrawBuffers,
     mesh_descriptors: Vec<MeshDescriptor>,
+    instance_offsets: Vec<Vec<wgpu::BufferAddress>>,
     draw_calls: Vec<DrawCall>,
 }
 
@@ -445,9 +426,14 @@ impl GpuScene {
         */
         use std::collections::BTreeMap;
         let mut instance_banks: BTreeMap<(usize, MaterialId), Vec<u8>> = BTreeMap::new();
+        let mut instance_offsets = vec![vec![]; scene.objects.len()];
+        let mut instance_offsets_per_bank: HashMap<(usize, MaterialId), Vec<(usize, usize, u64)>> =
+            HashMap::new();
 
-        for scene_object in scene.objects {
+        for (scene_object_id, scene_object) in scene.objects.iter().enumerate() {
             let descriptor = &scene.storage.model_descriptors[scene_object.model_idx];
+            instance_offsets[scene_object_id]
+                .resize(descriptor.mesh_r.1 - descriptor.mesh_r.0, std::u64::MAX);
 
             let mesh_r = descriptor.mesh_r.0..descriptor.mesh_r.1;
             let mut material_r = descriptor
@@ -455,6 +441,7 @@ impl GpuScene {
                 .map(|(s, e)| s..e)
                 .unwrap_or(0..0);
 
+            let mesh_start = mesh_r.start;
             for mesh_idx in mesh_r {
                 let material_idx = material_r
                     .next()
@@ -465,7 +452,16 @@ impl GpuScene {
                 let instance_bank = instance_banks.entry((mesh_idx, material_idx)).or_default();
 
                 let instances_r = scene_object.mesh_instances_r.0..scene_object.mesh_instances_r.1;
+                // FIXIT: This is wrong if there are separate instance types for submeshes.
+                // Fine since we don't do any alteration of per-instance data (yet!).
+                // Instance bank needs to be determined per-mesh
+                // and instance_offsets needs to be parametrized by instance type.
                 for instance in &scene.storage.instances[instances_r] {
+                    let cur_len = instance_bank.len() as wgpu::BufferAddress;
+                    let per_bank_map = instance_offsets_per_bank
+                        .entry((mesh_idx, material_idx))
+                        .or_default();
+                    per_bank_map.push((scene_object_id, mesh_idx - mesh_start, cur_len));
                     instance.copy_to(instance_bank);
                 }
             }
@@ -478,6 +474,15 @@ impl GpuScene {
 
         for ((mesh_idx, material_id), instance_bank) in instance_banks.into_iter() {
             let instance_bank_offset = transform_ib_contents.len();
+            for (scene_object_id, mesh_idx, offset) in instance_offsets_per_bank
+                [&(mesh_idx, material_id)]
+                .iter()
+                .copied()
+            {
+                instance_offsets[scene_object_id][mesh_idx] =
+                    instance_bank_offset as wgpu::BufferAddress + offset;
+            }
+
             instance_buffer_draws.push((
                 instance_bank_offset / MODEL_INSTANCE_STRIDE,
                 instance_bank.len() / MODEL_INSTANCE_STRIDE,
@@ -608,10 +613,12 @@ impl GpuScene {
         };
 
         Ok(Self {
+            scene_objects: scene.objects,
             instances: scene.storage.instances,
             materials: scene.storage.local_materials,
             vertex_buffers,
             instance_buffers,
+            instance_offsets,
             index_buffer,
             draw_buffers,
             mesh_descriptors,
@@ -633,10 +640,25 @@ impl GpuScene {
         }
     }
 
-    pub fn update_instance<F>(&mut self, scene_object_id: SceneObjectId, updater: F)
+    pub fn update_instance<F>(&mut self, gpu: &Gpu, scene_object_id: SceneObjectId, updater: F)
     where
-        F: Fn(&mut Instance) -> Instance,
+        F: Fn(&mut Instance),
     {
+        let object = &self.scene_objects[scene_object_id.0];
+
+        let instance_idx = object.instance_idx;
+        updater(&mut self.instances[instance_idx]);
+
+        let mut update = Vec::new();
+        self.instances[instance_idx].copy_to(&mut update);
+
+        for offset in &self.instance_offsets[scene_object_id.0] {
+            gpu.queue.write_buffer(
+                self.instance_buffers.model_ib.as_ref().unwrap(),
+                *offset,
+                &update,
+            );
+        }
     }
 
     pub fn index_buffer(&self) -> &wgpu::Buffer {
