@@ -46,7 +46,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
         test_scenes::teapot_scene(&gpu)?;
 
-    let gpu_scene = GpuScene::new(&gpu, scene)?;
+    let mut gpu_scene = GpuScene::new(&gpu, scene)?;
 
     let (sky_width, sky_height, sky_data) = [
         image::open("./textures/skybox/posx.jpg")?,
@@ -180,7 +180,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             &gpu_scene,
                             spass_bg,
                         );
-                        // let frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                        let frame = skybox_pass.render(gpu, &scene_uniform, frame);
                         let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();
