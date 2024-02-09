@@ -6,7 +6,7 @@ use crate::{
     mesh::MeshBuilder,
     phong_light::PhongLightScene,
     projection::{wgpu_projection, GpuProjection},
-    scene::{Instance, Scene, SceneModel, SceneModelBuilder, SceneObjectId},
+    scene::{Instance, Scene, SceneModelBuilder, SceneObjectId},
     shapes::{Cube, Plane},
 };
 use anyhow::Result;
@@ -30,10 +30,6 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let cube_mesh = MeshBuilder::new().with_geometry(Cube::geometry()).build()?;
     let cube_uvtb_mesh = MeshBuilder::new()
         .with_geometry(Cube::geometry_tan_space())
-        .with_texture_uvs(Cube::uvs())
-        .build()?;
-    let cube_uv_mesh = MeshBuilder::new()
-        .with_geometry(Cube::geometry())
         .with_texture_uvs(Cube::uvs())
         .build()?;
 
