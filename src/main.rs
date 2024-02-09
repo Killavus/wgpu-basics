@@ -180,7 +180,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             &gpu_scene,
                             spass_bg,
                         );
-                        let frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                        // let frame = skybox_pass.render(gpu, &scene_uniform, frame);
                         let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();

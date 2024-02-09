@@ -12,7 +12,7 @@ impl Plane {
         Self
     }
 
-    fn raw_geometry() -> (Vec<na::Vector3<f32>>, Vec<na::Vector3<f32>>, Vec<u32>) {
+    pub(self) fn raw_geometry() -> (Vec<na::Vector3<f32>>, Vec<na::Vector3<f32>>, Vec<u32>) {
         let mut mesh = vec![];
         let mut faces = vec![];
 
@@ -93,73 +93,126 @@ impl Cube {
     }
 
     fn raw_geometry() -> (Vec<FVec3>, Vec<FVec3>, Vec<u32>) {
-        let center = FVec3::zeros();
-        let mut mesh = vec![];
-        let mut faces = vec![];
-
+        let (face_v, face_normals, face_indexes) = Plane::raw_geometry();
         let half_size = 0.5;
-        mesh.push(FVec3::new(-half_size, half_size, half_size)); // front-tl 0
-        mesh.push(FVec3::new(half_size, half_size, half_size)); // front-tr 1
-        mesh.push(FVec3::new(-half_size, -half_size, half_size)); // front-bl 2
-        mesh.push(FVec3::new(half_size, -half_size, half_size)); // front-br 3
-        mesh.push(FVec3::new(-half_size, half_size, -half_size)); // back-tl 4
-        mesh.push(FVec3::new(half_size, half_size, -half_size)); // back-tr 5
-        mesh.push(FVec3::new(-half_size, -half_size, -half_size)); // back-bl 6
-        mesh.push(FVec3::new(half_size, -half_size, -half_size)); // back-br 7
 
-        faces.push(2);
-        faces.push(1);
-        faces.push(0);
-        faces.push(1);
-        faces.push(2);
-        faces.push(3);
+        let mut mesh = Vec::with_capacity(24);
+        let mut normals = Vec::with_capacity(24);
+        let mut faces = Vec::with_capacity(36);
 
-        faces.push(4);
-        faces.push(5);
-        faces.push(6);
-        faces.push(7);
-        faces.push(6);
-        faces.push(5);
+        let (top_face, top_normals) = (
+            face_v
+                .iter()
+                .map(|v| v + na::Vector3::new(0.0, half_size, 0.0)),
+            face_normals.iter().copied(),
+        );
 
-        faces.push(0);
-        faces.push(1);
-        faces.push(4);
-        faces.push(5);
-        faces.push(4);
-        faces.push(1);
+        let (bottom_face, bottom_normals) = (
+            face_v.iter().map(|v| {
+                na::Matrix4::new_rotation(na::Vector3::x() * 180.0f32.to_radians())
+                    .transform_vector(v)
+                    + na::Vector3::new(0.0, -half_size, 0.0)
+            }),
+            face_normals.iter().map(|n| {
+                na::Matrix4::new_rotation(na::Vector3::x() * 180.0f32.to_radians())
+                    .transform_vector(n)
+            }),
+        );
 
-        faces.push(6);
-        faces.push(3);
-        faces.push(2);
-        faces.push(6);
-        faces.push(7);
-        faces.push(3);
+        let (front_face, front_normals) = (
+            face_v.iter().map(|v| {
+                na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians())
+                    .transform_vector(v)
+                    + na::Vector3::new(0.0, 0.0, half_size)
+            }),
+            face_normals.iter().map(|n| {
+                na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians())
+                    .transform_vector(n)
+            }),
+        );
 
-        faces.push(4);
-        faces.push(2);
-        faces.push(0);
-        faces.push(4);
-        faces.push(6);
-        faces.push(2);
+        let (back_face, back_normals) = (
+            face_v.iter().map(|v| {
+                na::Matrix4::new_rotation(na::Vector3::x() * -90.0f32.to_radians())
+                    .transform_vector(v)
+                    + na::Vector3::new(0.0, 0.0, -half_size)
+            }),
+            face_normals.iter().map(|n| {
+                na::Matrix4::new_rotation(na::Vector3::x() * -90.0f32.to_radians())
+                    .transform_vector(n)
+            }),
+        );
 
-        faces.push(7);
-        faces.push(5);
-        faces.push(1);
-        faces.push(1);
-        faces.push(3);
-        faces.push(7);
+        let (left_face, left_normals) = (
+            face_v.iter().map(|v| {
+                (na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians())
+                    * na::Matrix4::new_rotation(na::Vector3::z() * 90.0f32.to_radians()))
+                .transform_vector(v)
+                    + na::Vector3::new(-half_size, 0.0, 0.0)
+            }),
+            face_normals.iter().map(|n| {
+                (na::Matrix4::new_rotation(na::Vector3::x() * 90.0f32.to_radians())
+                    * na::Matrix4::new_rotation(na::Vector3::z() * 90.0f32.to_radians()))
+                .transform_vector(n)
+            }),
+        );
 
-        let normals: Vec<FVec3> = mesh
-            .iter()
-            .copied()
-            .map(|v| (v - center).normalize())
-            .collect();
+        let (right_face, right_normals) = (
+            face_v.iter().map(|v| {
+                (na::Matrix4::new_rotation(na::Vector3::x() * -90.0f32.to_radians())
+                    * na::Matrix4::new_rotation(na::Vector3::z() * -90.0f32.to_radians()))
+                .transform_vector(v)
+                    + na::Vector3::new(half_size, 0.0, 0.0)
+            }),
+            face_normals.iter().map(|n| {
+                (na::Matrix4::new_rotation(na::Vector3::x() * -90.0f32.to_radians())
+                    * na::Matrix4::new_rotation(na::Vector3::z() * -90.0f32.to_radians()))
+                .transform_vector(n)
+            }),
+        );
+
+        mesh.extend(top_face);
+        mesh.extend(bottom_face);
+        mesh.extend(front_face);
+        mesh.extend(back_face);
+        mesh.extend(left_face);
+        mesh.extend(right_face);
+
+        normals.extend(top_normals);
+        normals.extend(bottom_normals);
+        normals.extend(front_normals);
+        normals.extend(back_normals);
+        normals.extend(left_normals);
+        normals.extend(right_normals);
+
+        faces.extend(face_indexes.iter());
+        faces.extend(face_indexes.iter().map(|i| i + 4));
+        faces.extend(face_indexes.iter().map(|i| i + 8));
+        faces.extend(face_indexes.iter().map(|i| i + 12));
+        faces.extend(face_indexes.iter().map(|i| i + 16));
+        faces.extend(face_indexes.iter().map(|i| i + 20));
 
         (mesh, normals, faces)
     }
 
     pub fn uvs() -> Vec<FVec2> {
         vec![
+            FVec2::new(0.0, 0.0),
+            FVec2::new(1.0, 0.0),
+            FVec2::new(0.0, 1.0),
+            FVec2::new(1.0, 1.0),
+            FVec2::new(0.0, 0.0),
+            FVec2::new(1.0, 0.0),
+            FVec2::new(0.0, 1.0),
+            FVec2::new(1.0, 1.0),
+            FVec2::new(0.0, 0.0),
+            FVec2::new(1.0, 0.0),
+            FVec2::new(0.0, 1.0),
+            FVec2::new(1.0, 1.0),
+            FVec2::new(0.0, 0.0),
+            FVec2::new(1.0, 0.0),
+            FVec2::new(0.0, 1.0),
+            FVec2::new(1.0, 1.0),
             FVec2::new(0.0, 0.0),
             FVec2::new(1.0, 0.0),
             FVec2::new(0.0, 1.0),

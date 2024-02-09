@@ -6,7 +6,7 @@ use crate::{
     mesh::MeshBuilder,
     phong_light::PhongLightScene,
     projection::{wgpu_projection, GpuProjection},
-    scene::{Instance, Scene, SceneModelBuilder, SceneObjectId},
+    scene::{Instance, Scene, SceneModel, SceneModelBuilder, SceneObjectId},
     shapes::{Cube, Plane},
 };
 use anyhow::Result;
@@ -28,6 +28,15 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let mut material_atlas = MaterialAtlas::new(gpu);
 
     let cube_mesh = MeshBuilder::new().with_geometry(Cube::geometry()).build()?;
+    let cube_uvtb_mesh = MeshBuilder::new()
+        .with_geometry(Cube::geometry_tan_space())
+        .with_texture_uvs(Cube::uvs())
+        .build()?;
+    let cube_uv_mesh = MeshBuilder::new()
+        .with_geometry(Cube::geometry())
+        .with_texture_uvs(Cube::uvs())
+        .build()?;
+
     let plane_mesh = MeshBuilder::new()
         .with_geometry(Plane::geometry())
         .build()?;
@@ -39,6 +48,7 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
             calculate_tangent_space: false,
         },
     )?;
+
     let (maya_mesh, maya_materials) = ObjLoader::load(
         "./models/maya/maya.obj",
         gpu,
@@ -51,6 +61,8 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let teapot = scene.load_model(SceneModelBuilder::default().with_meshes(teapot_mesh));
     let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));
     let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_mesh]));
+    let cube_uv_nmap =
+        scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_uvtb_mesh]));
 
     let maya = scene.load_model(
         SceneModelBuilder::default()
@@ -93,6 +105,13 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
         na::Vector4::new(0.2, 0.8, 0.4, 32.0),
     )?;
 
+    let brickwall_nmap = material_atlas.add_phong_textured_normal(
+        gpu,
+        "./textures/brickwall_diffuse.jpg",
+        None::<&'static str>,
+        "./textures/brickwall_normal.jpg",
+    )?;
+
     scene.add_object_with_material(
         cube,
         Instance::new_model(
@@ -110,6 +129,14 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
                 * na::Matrix4::new_scaling(0.5),
         ),
         white,
+    );
+
+    scene.add_object_with_material(
+        cube_uv_nmap,
+        Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
+            1.0, 0.5, 1.0,
+        ))),
+        brickwall_nmap,
     );
 
     scene.add_object_with_material(
