@@ -70,10 +70,12 @@ struct Instance {
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) normal: vec4<f32>,
-    @location(1) w_pos: vec4<f32>,
-    @location(2) c_pos: vec4<f32>,
-    @location(3) uv: vec2<f32>,
+    @location(0) w_pos: vec4<f32>,
+    @location(1) c_pos: vec4<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) t: vec3<f32>,
+    @location(4) b: vec3<f32>,
+    @location(5) n: vec3<f32>,
 };
 
 @vertex
@@ -87,7 +89,15 @@ fn vs_main(v: VertexIn, i: Instance) -> VertexOutput {
 
     var out: VertexOutput;
     out.position = ndc_v;
-    out.normal = normalize(inv_model_t * vec4(v.normal_v, 0.0));
+    // Since we are averaging tangents and bitangents for shared vertices
+    // they can be not orthogonal to normal anymore.
+    // We can apply Gram-Schmidt process to re-orthogonalize them.
+    // This is happening here:
+    out.t = normalize(inv_model_t * vec4(v.tangent_v, 0.0)).xyz;
+    out.n = normalize(inv_model_t * vec4(v.normal_v, 0.0)).xyz;
+    // re-orthogonalize t vector.
+    out.t = normalize(out.t - dot(out.n, out.t) * out.n);
+    out.b = cross(out.n, out.t);
     out.w_pos = world_v;
     out.c_pos = camera_v;
     out.uv = v.uv;
@@ -160,7 +170,16 @@ fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> 
     var attenuation = 1.0;
     var lightDistance = 0.0;
 
-    var normal = normalize(textureSample(normal_t, mat_sampler, in.uv).rgb * 2.0 - 1.0);
+    // Here we transform tangent-space vector into world space.
+    // We can do other way around - transform lightDir & position to tangent space.
+    // This is potentially better for performance (we can do it in vertex shader),
+    // but don't know if it works with shadow maps and other stuff.
+    // TBN is tangent space -> world space.
+    // To do world space -> tangent space we need to transpose TBN.
+    // Transpose works because it is an orthogonal matrix.
+
+    var tbn = mat3x3<f32>(in.t, in.b, in.n);
+    var normal = normalize(tbn * (textureSample(normal_t, mat_sampler, in.uv).rgb * 2.0 - 1.0));
 
     var shadow = 0.0;
     if light_type == LIGHT_DIRECTIONAL {
@@ -170,8 +189,7 @@ fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> 
         lightDir = normalize(lightPosition - in.w_pos.xyz);
         lightDistance = length(lightPosition - in.w_pos.xyz);
 
-        // attenuation = 1.0 / (attenuationConstant + attenuationLinear * lightDistance + attenuationQuadratic * lightDistance * lightDistance);
-        attenuation = 1.0;
+        attenuation = 1.0 / (attenuationConstant + attenuationLinear * lightDistance + attenuationQuadratic * lightDistance * lightDistance);
     } else {
         return vec3<f32>(0.0, 0.0, 0.0);
     }
