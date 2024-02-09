@@ -2,7 +2,7 @@ use crate::{
     camera::{Camera, GpuCamera},
     gpu::Gpu,
     loader::{ObjLoader, ObjLoaderSettings},
-    material::MaterialAtlas,
+    material::{MaterialAtlas, SpecularTexture},
     mesh::MeshBuilder,
     phong_light::PhongLightScene,
     projection::{wgpu_projection, GpuProjection},
@@ -22,6 +22,11 @@ type TestScene = (
     na::Matrix4<f32>,
     HashMap<String, SceneObjectId>,
 );
+
+// pub fn blinn_phong_scene(gpu: &Gpu) -> Result<TestScene> {
+//     let mut scene = Scene::default();
+//     let mut material_atlas = MaterialAtlas::new(gpu);
+// }
 
 pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let mut scene = Scene::default();
@@ -104,7 +109,7 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let brickwall_nmap = material_atlas.add_phong_textured_normal(
         gpu,
         "./textures/brickwall_diffuse.jpg",
-        None::<&'static str>,
+        SpecularTexture::Ideal(32.0),
         "./textures/brickwall_normal.jpg",
     )?;
 
@@ -258,7 +263,7 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
     let brickwall_material = material_atlas.add_phong_textured_normal(
         gpu,
         "./textures/brickwall_diffuse.jpg",
-        None::<&'static str>,
+        SpecularTexture::FullDiffuse,
         "./textures/brickwall_normal.jpg",
     )?;
 

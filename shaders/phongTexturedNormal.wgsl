@@ -43,6 +43,7 @@ struct ShadowMapMatrices {
 @group(2) @binding(1) var specular_t: texture_2d<f32>;
 @group(2) @binding(2) var normal_t: texture_2d<f32>;
 @group(2) @binding(3) var mat_sampler: sampler;
+@group(2) @binding(4) var<uniform> shininess: f32;
 
 @group(3) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
 @group(3) @binding(1) var smap_sampler: sampler;
@@ -159,8 +160,6 @@ fn calculateLight(in: VertexOutput, light: Light, light_type: u32) -> vec3<f32> 
 
     var lightPosition = light.position.xyz;
     var lightDirection = light.direction.xyz;
-
-    var shininess = 32.0;
 
     var viewPos = camera_model[3].xyz;
 

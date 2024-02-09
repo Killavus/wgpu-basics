@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{
     gpu::Gpu,
-    material::{MaterialAtlas, MaterialId},
+    material::{MaterialAtlas, MaterialId, SpecularTexture},
     mesh::{Geometry, Mesh, MeshBuilder, NormalSource, TangentSpaceInformation},
 };
 
@@ -65,10 +65,17 @@ impl ObjLoader {
                     })
                     .unwrap();
 
-                let specular = material.specular_texture.as_ref().map(|tex_path| {
-                    let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
-                    base_path.join(tex_path)
-                });
+                let specular = material
+                    .specular_texture
+                    .as_ref()
+                    .map(|tex_path| {
+                        let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
+                        SpecularTexture::Provided(
+                            base_path.join(tex_path).to_str().unwrap().to_owned(),
+                            32.0,
+                        )
+                    })
+                    .unwrap_or(SpecularTexture::FullDiffuse);
 
                 let normal = material
                     .normal_texture
@@ -84,7 +91,7 @@ impl ObjLoader {
                     material_atlas.add_phong_textured_normal(
                         gpu,
                         &diffuse_texture,
-                        specular.as_ref(),
+                        specular,
                         &normal,
                     )?,
                 ));
@@ -98,14 +105,21 @@ impl ObjLoader {
                     })
                     .unwrap();
 
-                let specular = material.specular_texture.as_ref().map(|tex_path| {
-                    let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
-                    base_path.join(tex_path)
-                });
+                let specular = material
+                    .specular_texture
+                    .as_ref()
+                    .map(|tex_path| {
+                        let base_path = path.as_ref().parent().unwrap_or(path.as_ref());
+                        SpecularTexture::Provided(
+                            base_path.join(tex_path).to_str().unwrap().to_owned(),
+                            32.0,
+                        )
+                    })
+                    .unwrap_or(SpecularTexture::FullDiffuse);
 
                 local_materials.push((
                     material.name.clone(),
-                    material_atlas.add_phong_textured(gpu, &diffuse_texture, specular.as_ref())?,
+                    material_atlas.add_phong_textured(gpu, &diffuse_texture, specular)?,
                 ));
             }
         }

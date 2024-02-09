@@ -23,12 +23,12 @@ pub enum Material {
     },
     PhongTextured {
         diffuse: wgpu::Texture,
-        specular: Option<wgpu::Texture>,
+        specular: SpecularTextureResult,
     },
     PhongTexturedNormal {
         diffuse: wgpu::Texture,
         normal: wgpu::Texture,
-        specular: Option<wgpu::Texture>,
+        specular: SpecularTextureResult,
     },
 }
 
@@ -100,10 +100,35 @@ impl GpuMaterial {
             }
             Material::PhongTextured { diffuse, specular } => {
                 let diffuse_view = diffuse.create_view(&wgpu::TextureViewDescriptor::default());
-                let specular_view = specular
-                    .as_ref()
-                    .unwrap_or(&default_textures.black)
-                    .create_view(&wgpu::TextureViewDescriptor::default());
+                let mut shininess_contents: Vec<u8> =
+                    Vec::with_capacity(std::mem::size_of::<f32>());
+
+                let specular_view = match specular {
+                    SpecularTextureResult::Ideal(shininess) => {
+                        shininess_contents.extend(bytemuck::cast_slice(&[*shininess]));
+                        default_textures
+                            .white
+                            .create_view(&wgpu::TextureViewDescriptor::default())
+                    }
+                    SpecularTextureResult::FullDiffuse => {
+                        shininess_contents.extend(bytemuck::cast_slice(&[0.0]));
+                        default_textures
+                            .black
+                            .create_view(&wgpu::TextureViewDescriptor::default())
+                    }
+                    SpecularTextureResult::Provided(texture, shininess) => {
+                        shininess_contents.extend(bytemuck::cast_slice(&[*shininess]));
+                        texture.create_view(&wgpu::TextureViewDescriptor::default())
+                    }
+                };
+
+                let shininess_buf =
+                    gpu.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Material::PhongTexturedShininess"),
+                            contents: &shininess_contents,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        });
 
                 let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Material::PhongTexturedBindGroup"),
@@ -121,6 +146,12 @@ impl GpuMaterial {
                             binding: 2,
                             resource: wgpu::BindingResource::Sampler(&default_textures.sampler),
                         },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Buffer(
+                                shininess_buf.as_entire_buffer_binding(),
+                            ),
+                        },
                     ],
                 });
 
@@ -133,10 +164,35 @@ impl GpuMaterial {
             } => {
                 let diffuse_view = diffuse.create_view(&wgpu::TextureViewDescriptor::default());
                 let normal_view = normal.create_view(&wgpu::TextureViewDescriptor::default());
-                let specular_view = specular
-                    .as_ref()
-                    .unwrap_or(&default_textures.black)
-                    .create_view(&wgpu::TextureViewDescriptor::default());
+                let mut shininess_contents: Vec<u8> =
+                    Vec::with_capacity(std::mem::size_of::<f32>());
+
+                let specular_view = match specular {
+                    SpecularTextureResult::Ideal(shininess) => {
+                        shininess_contents.extend(bytemuck::cast_slice(&[*shininess]));
+                        default_textures
+                            .white
+                            .create_view(&wgpu::TextureViewDescriptor::default())
+                    }
+                    SpecularTextureResult::FullDiffuse => {
+                        shininess_contents.extend(bytemuck::cast_slice(&[0.0]));
+                        default_textures
+                            .black
+                            .create_view(&wgpu::TextureViewDescriptor::default())
+                    }
+                    SpecularTextureResult::Provided(texture, shininess) => {
+                        shininess_contents.extend(bytemuck::cast_slice(&[*shininess]));
+                        texture.create_view(&wgpu::TextureViewDescriptor::default())
+                    }
+                };
+
+                let shininess_buf =
+                    gpu.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Material::PhongTexturedShininess"),
+                            contents: &shininess_contents,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        });
 
                 let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Material::PhongTexturedNormalBindGroup"),
@@ -157,6 +213,12 @@ impl GpuMaterial {
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::Sampler(&default_textures.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::Buffer(
+                                shininess_buf.as_entire_buffer_binding(),
+                            ),
                         },
                     ],
                 });
@@ -324,6 +386,16 @@ impl MaterialAtlasLayouts {
                             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                             count: None,
                         },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
                 });
 
@@ -368,6 +440,16 @@ impl MaterialAtlasLayouts {
                             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                             count: None,
                         },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 4,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
                 });
 
@@ -377,6 +459,18 @@ impl MaterialAtlasLayouts {
             phong_textured_normal,
         }
     }
+}
+
+pub enum SpecularTexture {
+    Ideal(f32),
+    FullDiffuse,
+    Provided(String, f32),
+}
+
+pub enum SpecularTextureResult {
+    Ideal(f32),
+    FullDiffuse,
+    Provided(wgpu::Texture, f32),
 }
 
 impl MaterialAtlas {
@@ -409,12 +503,16 @@ impl MaterialAtlas {
         &mut self,
         gpu: &Gpu,
         diffuse: impl AsRef<Path>,
-        specular: Option<impl AsRef<Path>>,
+        specular: SpecularTexture,
     ) -> Result<MaterialId> {
         let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?);
         let specular = match specular {
-            Some(path) => Some(Self::gpu_texture(gpu, Self::load_texture(path)?)),
-            None => None,
+            SpecularTexture::FullDiffuse => SpecularTextureResult::FullDiffuse,
+            SpecularTexture::Ideal(f32) => SpecularTextureResult::Ideal(f32),
+            SpecularTexture::Provided(path, shininess) => {
+                let texture = Self::gpu_texture(gpu, Self::load_texture(path)?);
+                SpecularTextureResult::Provided(texture, shininess)
+            }
         };
 
         self.add_material(gpu, Material::PhongTextured { diffuse, specular })
@@ -424,14 +522,18 @@ impl MaterialAtlas {
         &mut self,
         gpu: &Gpu,
         diffuse: impl AsRef<Path>,
-        specular: Option<impl AsRef<Path>>,
+        specular: SpecularTexture,
         normal: impl AsRef<Path>,
     ) -> Result<MaterialId> {
         let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?);
         let normal = Self::gpu_texture(gpu, Self::load_texture(normal)?);
         let specular = match specular {
-            Some(path) => Some(Self::gpu_texture(gpu, Self::load_texture(path)?)),
-            None => None,
+            SpecularTexture::FullDiffuse => SpecularTextureResult::FullDiffuse,
+            SpecularTexture::Ideal(f32) => SpecularTextureResult::Ideal(f32),
+            SpecularTexture::Provided(path, shininess) => {
+                let texture = Self::gpu_texture(gpu, Self::load_texture(path)?);
+                SpecularTextureResult::Provided(texture, shininess)
+            }
         };
 
         self.add_material(
