@@ -36,7 +36,7 @@ pub fn blinn_phong_scene(gpu: &Gpu) -> Result<TestScene> {
     let woodfloor = material_atlas.add_phong_textured(
         gpu,
         "./textures/woodfloor_detail.jpg",
-        SpecularTexture::Ideal(8.0),
+        SpecularTexture::Ideal(64.0),
     )?;
 
     scene.add_object_with_material(

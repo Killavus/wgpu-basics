@@ -44,7 +44,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
-        test_scenes::teapot_scene(&gpu)?;
+        test_scenes::blinn_phong_scene(&gpu)?;
 
     let mut gpu_scene = GpuScene::new(&gpu, scene)?;
 
@@ -77,7 +77,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -180,7 +180,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             &gpu_scene,
                             spass_bg,
                         );
-                        // let frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                        let frame = skybox_pass.render(gpu, &scene_uniform, frame);
                         let frame = postprocess_pass.render(gpu, frame);
 
                         frame.present();

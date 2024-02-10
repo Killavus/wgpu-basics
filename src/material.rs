@@ -268,7 +268,7 @@ impl MaterialAtlasTextureDefaults {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -283,7 +283,7 @@ impl MaterialAtlasTextureDefaults {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -505,12 +505,12 @@ impl MaterialAtlas {
         diffuse: impl AsRef<Path>,
         specular: SpecularTexture,
     ) -> Result<MaterialId> {
-        let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?);
+        let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?, false);
         let specular = match specular {
             SpecularTexture::FullDiffuse => SpecularTextureResult::FullDiffuse,
             SpecularTexture::Ideal(f32) => SpecularTextureResult::Ideal(f32),
             SpecularTexture::Provided(path, shininess) => {
-                let texture = Self::gpu_texture(gpu, Self::load_texture(path)?);
+                let texture = Self::gpu_texture(gpu, Self::load_texture(path)?, false);
                 SpecularTextureResult::Provided(texture, shininess)
             }
         };
@@ -525,13 +525,13 @@ impl MaterialAtlas {
         specular: SpecularTexture,
         normal: impl AsRef<Path>,
     ) -> Result<MaterialId> {
-        let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?);
-        let normal = Self::gpu_texture(gpu, Self::load_texture(normal)?);
+        let diffuse = Self::gpu_texture(gpu, Self::load_texture(diffuse)?, false);
+        let normal = Self::gpu_texture(gpu, Self::load_texture(normal)?, true);
         let specular = match specular {
             SpecularTexture::FullDiffuse => SpecularTextureResult::FullDiffuse,
             SpecularTexture::Ideal(f32) => SpecularTextureResult::Ideal(f32),
             SpecularTexture::Provided(path, shininess) => {
-                let texture = Self::gpu_texture(gpu, Self::load_texture(path)?);
+                let texture = Self::gpu_texture(gpu, Self::load_texture(path)?, false);
                 SpecularTextureResult::Provided(texture, shininess)
             }
         };
@@ -559,7 +559,7 @@ impl MaterialAtlas {
         Ok(img.to_rgba8())
     }
 
-    fn gpu_texture(gpu: &Gpu, image: image::RgbaImage) -> wgpu::Texture {
+    fn gpu_texture(gpu: &Gpu, image: image::RgbaImage, is_normal: bool) -> wgpu::Texture {
         use image::EncodableLayout;
         let (width, height) = image.dimensions();
 
@@ -575,7 +575,11 @@ impl MaterialAtlas {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: if is_normal {
+                wgpu::TextureFormat::Rgba8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            },
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
