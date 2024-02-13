@@ -30,6 +30,7 @@ mod shadow_pass;
 mod shapes;
 mod skybox_pass;
 mod test_scenes;
+mod ui;
 
 use phong_pass::PhongPass;
 
@@ -44,7 +45,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
-        test_scenes::blinn_phong_scene(&gpu)?;
+        test_scenes::teapot_scene(&gpu)?;
+
+    let mut ui = ui::Ui::new(&window, &gpu)?;
 
     let mut gpu_scene = GpuScene::new(&gpu, scene)?;
 
@@ -129,190 +132,202 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let time = std::time::Instant::now();
     let mut last_time = time.elapsed();
+    let ui = &mut ui;
 
     event_loop
         .run(move |event, target| {
             use winit::keyboard::KeyCode;
+
             if let Event::WindowEvent {
                 window_id: _,
                 event,
             } = event
             {
-                match event {
-                    WindowEvent::Resized(new_size) => {
-                        // Reconfigure the surface with the new size
-                        gpu.on_resize((new_size.width, new_size.height));
-                        postprocess_pass.on_resize(gpu, (new_size.width, new_size.height));
-                        window.request_redraw();
-                    }
-                    WindowEvent::CloseRequested => {
-                        target.exit();
-                    }
-                    WindowEvent::RedrawRequested => {
-                        use nalgebra as na;
-                        let time = time.elapsed();
+                if !ui.handle_input(window, &event) {
+                    match event {
+                        WindowEvent::Resized(new_size) => {
+                            // Reconfigure the surface with the new size
+                            gpu.on_resize((new_size.width, new_size.height));
+                            postprocess_pass.on_resize(gpu, (new_size.width, new_size.height));
+                            window.request_redraw();
+                        }
+                        WindowEvent::CloseRequested => {
+                            target.exit();
+                        }
+                        WindowEvent::RedrawRequested => {
+                            use nalgebra as na;
+                            let time = time.elapsed();
 
-                        let time_ms = (time - last_time).as_secs_f32();
-                        let tick = 1.0 / 60.0;
-                        let tick_delta = time_ms / tick;
+                            let time_ms = (time - last_time).as_secs_f32();
+                            let tick = 1.0 / 60.0;
+                            let tick_delta = time_ms / tick;
 
-                        let spass_bg = shadow_pass
-                            .render(
+                            let ui_update = ui.update(window);
+
+                            let spass_bg = shadow_pass
+                                .render(
+                                    gpu,
+                                    lights.directional.first().unwrap_or(
+                                        &PhongLight::new_directional(
+                                            na::Vector3::zeros(),
+                                            na::Vector3::zeros(),
+                                            na::Vector3::zeros(),
+                                            na::Vector3::zeros(),
+                                        ),
+                                    ),
+                                    &camera,
+                                    &projection_mat,
+                                    &gpu_scene,
+                                )
+                                .unwrap();
+                            let frame = phong_pass.render(
                                 gpu,
-                                lights
-                                    .directional
-                                    .first()
-                                    .unwrap_or(&PhongLight::new_directional(
-                                        na::Vector3::zeros(),
-                                        na::Vector3::zeros(),
-                                        na::Vector3::zeros(),
-                                        na::Vector3::zeros(),
-                                    )),
-                                &camera,
-                                &projection_mat,
+                                &scene_uniform,
+                                &material_atlas,
                                 &gpu_scene,
-                            )
-                            .unwrap();
-                        let frame = phong_pass.render(
-                            gpu,
-                            &scene_uniform,
-                            &material_atlas,
-                            &gpu_scene,
-                            spass_bg,
-                        );
-                        let frame = skybox_pass.render(gpu, &scene_uniform, frame);
-                        let frame = postprocess_pass.render(gpu, frame);
+                                spass_bg,
+                            );
+                            let frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                            let frame = postprocess_pass.render(gpu, frame);
+                            let frame = ui.render(gpu, frame, window, ui_update);
 
-                        frame.present();
-                        last_time = time;
-                        window.request_redraw();
-                    }
-                    WindowEvent::MouseInput { state, button, .. } => {
-                        if state.is_pressed() {
-                            if let MouseButton::Left = button {
-                                window
-                                    .set_cursor_grab(winit::window::CursorGrabMode::Confined)
-                                    .ok();
-                                window.set_cursor_visible(false);
-                                dragging = true;
-                            }
-                        } else {
-                            window
-                                .set_cursor_grab(winit::window::CursorGrabMode::None)
-                                .ok();
-                            window.set_cursor_visible(true);
-                            dragging = false;
-                            drag_origin = None;
+                            frame.present();
+                            last_time = time;
+                            window.request_redraw();
                         }
-                    }
-                    WindowEvent::MouseWheel {
-                        delta: MouseScrollDelta::LineDelta(_, y),
-                        phase,
-                        ..
-                    } => {
-                        if phase == TouchPhase::Moved {
-                            camera.update(&gpu.queue, |c| c.forwards(y)).unwrap();
-                        }
-                    }
-                    WindowEvent::CursorMoved { position, .. } => {
-                        if dragging {
-                            match drag_origin {
-                                Some(origin) => {
-                                    let full_size = window.inner_size();
-                                    let pos = (
-                                        (position.x + 1.0) / full_size.width as f64,
-                                        (position.y + 1.0) / full_size.height as f64,
-                                    );
-
-                                    let delta = (pos.0 - origin.0, pos.1 - origin.1);
-
-                                    camera
-                                        .update(&gpu.queue, |c| c.tilt_horizontally(delta.0 as f32))
-                                        .unwrap();
-                                    camera
-                                        .update(&gpu.queue, |c| c.tilt_vertically(-delta.1 as f32))
-                                        .unwrap();
-
+                        WindowEvent::MouseInput { state, button, .. } => {
+                            if state.is_pressed() {
+                                if let MouseButton::Left = button {
                                     window
-                                        .set_cursor_position(PhysicalPosition::new(
-                                            origin.0 * full_size.width as f64,
-                                            origin.1 * full_size.height as f64,
-                                        ))
+                                        .set_cursor_grab(winit::window::CursorGrabMode::Confined)
                                         .ok();
+                                    window.set_cursor_visible(false);
+                                    dragging = true;
                                 }
-                                None => {
-                                    let full_size = window.inner_size();
-                                    let pos = (
-                                        (position.x + 1.0) / full_size.width as f64,
-                                        (position.y + 1.0) / full_size.height as f64,
-                                    );
+                            } else {
+                                window
+                                    .set_cursor_grab(winit::window::CursorGrabMode::None)
+                                    .ok();
+                                window.set_cursor_visible(true);
+                                dragging = false;
+                                drag_origin = None;
+                            }
+                        }
+                        WindowEvent::MouseWheel {
+                            delta: MouseScrollDelta::LineDelta(_, y),
+                            phase,
+                            ..
+                        } => {
+                            if phase == TouchPhase::Moved {
+                                camera.update(&gpu.queue, |c| c.forwards(y)).unwrap();
+                            }
+                        }
+                        WindowEvent::CursorMoved { position, .. } => {
+                            if dragging {
+                                match drag_origin {
+                                    Some(origin) => {
+                                        let full_size = window.inner_size();
+                                        let pos = (
+                                            (position.x + 1.0) / full_size.width as f64,
+                                            (position.y + 1.0) / full_size.height as f64,
+                                        );
 
-                                    drag_origin = Some(pos);
+                                        let delta = (pos.0 - origin.0, pos.1 - origin.1);
+
+                                        camera
+                                            .update(&gpu.queue, |c| {
+                                                c.tilt_horizontally(delta.0 as f32)
+                                            })
+                                            .unwrap();
+                                        camera
+                                            .update(&gpu.queue, |c| {
+                                                c.tilt_vertically(-delta.1 as f32)
+                                            })
+                                            .unwrap();
+
+                                        window
+                                            .set_cursor_position(PhysicalPosition::new(
+                                                origin.0 * full_size.width as f64,
+                                                origin.1 * full_size.height as f64,
+                                            ))
+                                            .ok();
+                                    }
+                                    None => {
+                                        let full_size = window.inner_size();
+                                        let pos = (
+                                            (position.x + 1.0) / full_size.width as f64,
+                                            (position.y + 1.0) / full_size.height as f64,
+                                        );
+
+                                        drag_origin = Some(pos);
+                                    }
                                 }
                             }
                         }
-                    }
-                    WindowEvent::KeyboardInput { event, .. } => {
-                        if event.state.is_pressed() {
-                            match event.physical_key {
-                                PhysicalKey::Code(KeyCode::KeyA) => {
-                                    camera
-                                        .update(&gpu.queue, |c| c.strafe(-MOVE_DELTA))
-                                        .unwrap();
+                        WindowEvent::KeyboardInput { event, .. } => {
+                            if event.state.is_pressed() {
+                                match event.physical_key {
+                                    PhysicalKey::Code(KeyCode::KeyA) => {
+                                        camera
+                                            .update(&gpu.queue, |c| c.strafe(-MOVE_DELTA))
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::KeyD) => {
+                                        camera
+                                            .update(&gpu.queue, |c| c.strafe(MOVE_DELTA))
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::KeyQ) => {
+                                        camera.update(&gpu.queue, |c| c.fly(MOVE_DELTA)).unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::KeyZ) => {
+                                        camera.update(&gpu.queue, |c| c.fly(-MOVE_DELTA)).unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::KeyW) => {
+                                        camera
+                                            .update(&gpu.queue, |c| c.forwards(MOVE_DELTA))
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::KeyS) => {
+                                        camera
+                                            .update(&gpu.queue, |c| c.forwards(-MOVE_DELTA))
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::ArrowLeft) => {
+                                        camera
+                                            .update(&gpu.queue, |c| {
+                                                c.tilt_horizontally(-TILT_DELTA.to_radians())
+                                            })
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::ArrowRight) => {
+                                        camera
+                                            .update(&gpu.queue, |c| {
+                                                c.tilt_horizontally(TILT_DELTA.to_radians())
+                                            })
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::ArrowUp) => {
+                                        camera
+                                            .update(&gpu.queue, |c| {
+                                                c.tilt_vertically(TILT_DELTA.to_radians())
+                                            })
+                                            .unwrap();
+                                    }
+                                    PhysicalKey::Code(KeyCode::ArrowDown) => {
+                                        camera
+                                            .update(&gpu.queue, |c| {
+                                                c.tilt_vertically(-TILT_DELTA.to_radians())
+                                            })
+                                            .unwrap();
+                                    }
+                                    _ => {}
                                 }
-                                PhysicalKey::Code(KeyCode::KeyD) => {
-                                    camera.update(&gpu.queue, |c| c.strafe(MOVE_DELTA)).unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::KeyQ) => {
-                                    camera.update(&gpu.queue, |c| c.fly(MOVE_DELTA)).unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::KeyZ) => {
-                                    camera.update(&gpu.queue, |c| c.fly(-MOVE_DELTA)).unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::KeyW) => {
-                                    camera
-                                        .update(&gpu.queue, |c| c.forwards(MOVE_DELTA))
-                                        .unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::KeyS) => {
-                                    camera
-                                        .update(&gpu.queue, |c| c.forwards(-MOVE_DELTA))
-                                        .unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                                    camera
-                                        .update(&gpu.queue, |c| {
-                                            c.tilt_horizontally(-TILT_DELTA.to_radians())
-                                        })
-                                        .unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::ArrowRight) => {
-                                    camera
-                                        .update(&gpu.queue, |c| {
-                                            c.tilt_horizontally(TILT_DELTA.to_radians())
-                                        })
-                                        .unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::ArrowUp) => {
-                                    camera
-                                        .update(&gpu.queue, |c| {
-                                            c.tilt_vertically(TILT_DELTA.to_radians())
-                                        })
-                                        .unwrap();
-                                }
-                                PhysicalKey::Code(KeyCode::ArrowDown) => {
-                                    camera
-                                        .update(&gpu.queue, |c| {
-                                            c.tilt_vertically(-TILT_DELTA.to_radians())
-                                        })
-                                        .unwrap();
-                                }
-                                _ => {}
                             }
                         }
-                    }
-                    _ => {}
-                };
+                        _ => {}
+                    };
+                }
             }
         })
         .unwrap();

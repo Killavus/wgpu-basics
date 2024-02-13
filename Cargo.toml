@@ -9,6 +9,8 @@ edition = "2021"
 anyhow = "1.0.79"
 bytemuck = { version = "1.14.0", features = ["derive"] }
 egui = "0.26.0"
+egui-wgpu = { version = "0.26.0", features = ["winit"] }
+egui-winit = "0.26.0"
 encase = { version = "0.7.0", features = ["nalgebra"] }
 image = "0.24.8"
 nalgebra = { version = "0.32.3", features = ["bytemuck"] }
