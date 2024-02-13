@@ -7,12 +7,11 @@ use scene_uniform::SceneUniform;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
-    dpi::{PhysicalPosition, PhysicalSize},
+    dpi::{LogicalSize, PhysicalPosition},
     event::*,
     event_loop::EventLoop,
     keyboard::PhysicalKey,
-    window::Window,
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
 
 mod camera;
@@ -159,6 +158,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             let time = time.elapsed();
 
                             let time_ms = (time - last_time).as_secs_f32();
+
                             let tick = 1.0 / 60.0;
                             let tick_delta = time_ms / tick;
 
@@ -339,7 +339,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 async fn main() -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new()
-        .with_inner_size(PhysicalSize::new(1366, 768))
+        .with_inner_size(LogicalSize::new(1366, 768))
         .build(&event_loop)?;
 
     run(event_loop, window).await?;
