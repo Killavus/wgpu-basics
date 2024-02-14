@@ -12,9 +12,33 @@ pub struct PostprocessPass {
     texture: wgpu::Texture,
 }
 
-#[derive(ShaderType)]
+#[derive(ShaderType, PartialEq)]
 pub struct PostprocessSettings {
     bcsg: na::Vector4<f32>,
+}
+
+impl PostprocessSettings {
+    pub fn saturation_mut(&mut self) -> &mut f32 {
+        &mut self.bcsg.z
+    }
+
+    pub fn brightness_mut(&mut self) -> &mut f32 {
+        &mut self.bcsg.x
+    }
+
+    pub fn contrast_mut(&mut self) -> &mut f32 {
+        &mut self.bcsg.y
+    }
+
+    pub fn gamma_mut(&mut self) -> &mut f32 {
+        &mut self.bcsg.w
+    }
+}
+
+impl Default for PostprocessSettings {
+    fn default() -> Self {
+        Self::new(1.0, 0.0, 1.0, 0.45)
+    }
 }
 
 impl PostprocessSettings {
@@ -26,7 +50,7 @@ impl PostprocessSettings {
 }
 
 impl PostprocessPass {
-    pub fn new(gpu: &Gpu, settings: PostprocessSettings) -> Result<Self> {
+    pub fn new(gpu: &Gpu, settings: &PostprocessSettings) -> Result<Self> {
         let tex_size = gpu.viewport_size();
 
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -210,10 +234,23 @@ impl PostprocessPass {
         self.bg = bg;
     }
 
-    pub fn render(&self, gpu: &Gpu, frame: wgpu::SurfaceTexture) -> wgpu::SurfaceTexture {
+    pub fn render(
+        &self,
+        gpu: &Gpu,
+        settings: &PostprocessSettings,
+        frame: wgpu::SurfaceTexture,
+    ) -> wgpu::SurfaceTexture {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+        let settings_size: u64 = PostprocessSettings::SHADER_SIZE.into();
+        let mut contents = UniformBuffer::new(Vec::with_capacity(settings_size as usize));
+
+        contents.write(settings).unwrap();
+
+        gpu.queue
+            .write_buffer(&self.settings_buf, 0, contents.into_inner().as_slice());
 
         encoder.copy_texture_to_texture(
             frame.texture.as_image_copy(),

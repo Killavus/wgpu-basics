@@ -40,6 +40,50 @@ use gpu::Gpu;
 
 use crate::phong_light::PhongLight;
 
+#[derive(Default)]
+struct AppSettings {
+    skybox_enabled: bool,
+    postprocess: PostprocessSettings,
+}
+
+impl AppSettings {
+    pub fn render(&mut self, ctx: &egui::Context, time_delta: f32) {
+        egui::Window::new("Postprocess")
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.label("Saturation");
+                ui.add(egui::Slider::new(
+                    self.postprocess.saturation_mut(),
+                    0.0..=10.0,
+                ));
+                ui.label("Brightness");
+                ui.add(egui::Slider::new(
+                    self.postprocess.brightness_mut(),
+                    0.0..=10.0,
+                ));
+                ui.label("Contrast");
+                ui.add(egui::Slider::new(
+                    self.postprocess.contrast_mut(),
+                    0.0..=12.0,
+                ));
+                ui.label("Gamma");
+                ui.add(egui::DragValue::new(self.postprocess.gamma_mut()).speed(0.01));
+            });
+
+        egui::Window::new("Info").show(ctx, |ui| {
+            ui.label(format!("FPS: {:.2}", 1.0 / time_delta));
+        });
+
+        egui::Window::new("Skybox").show(ctx, |ui| {
+            ui.checkbox(&mut true, "Enabled");
+        });
+    }
+
+    pub fn postprocess_settings(&self) -> &PostprocessSettings {
+        &self.postprocess
+    }
+}
+
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
@@ -47,6 +91,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         test_scenes::teapot_scene(&gpu)?;
 
     let mut ui = ui::Ui::new(&window, &gpu)?;
+    let mut settings = AppSettings::default();
 
     let mut gpu_scene = GpuScene::new(&gpu, scene)?;
 
@@ -117,8 +162,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         shadow_pass.out_bind_group_layout(),
     )?;
 
-    let mut postprocess_pass =
-        PostprocessPass::new(&gpu, PostprocessSettings::new(1.0, 0.0, 1.0, 0.45))?;
+    let mut postprocess_pass = PostprocessPass::new(&gpu, settings.postprocess_settings())?;
 
     let skybox_pass = SkyboxPass::new(&gpu, &scene_uniform, skybox_tex, skybox_sampler)?;
 
@@ -162,7 +206,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             let tick = 1.0 / 60.0;
                             let tick_delta = time_ms / tick;
 
-                            let ui_update = ui.update(window);
+                            let ui_update = ui.update(window, |ctx| settings.render(ctx, time_ms));
 
                             let spass_bg = shadow_pass
                                 .render(
@@ -188,7 +232,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 spass_bg,
                             );
                             let frame = skybox_pass.render(gpu, &scene_uniform, frame);
-                            let frame = postprocess_pass.render(gpu, frame);
+                            let frame = postprocess_pass.render(
+                                gpu,
+                                settings.postprocess_settings(),
+                                frame,
+                            );
                             let frame = ui.render(gpu, frame, window, ui_update);
 
                             frame.present();

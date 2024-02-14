@@ -1,5 +1,4 @@
 use anyhow::Result;
-use egui::TextEdit;
 
 use crate::gpu::Gpu;
 
@@ -39,28 +38,13 @@ impl Ui {
         response.consumed
     }
 
-    pub fn update(&mut self, window: &winit::window::Window) -> egui::FullOutput {
+    pub fn update<F>(&mut self, window: &winit::window::Window, ui: F) -> egui::FullOutput
+    where
+        F: FnOnce(&egui::Context),
+    {
         let input = self.state.take_egui_input(window);
 
-        self.ctx.run(input, |ctx| {
-            egui::Window::new("Postprocess")
-                .resizable(true)
-                .show(ctx, |ui| {
-                    let mut value = 0.5;
-                    ui.label("Saturation");
-                    ui.add(egui::Slider::new(&mut value, 0.0..=1.0));
-                    ui.label("Brightness");
-                    ui.add(egui::Slider::new(&mut value, 0.0..=1.0));
-                    ui.label("Contrast");
-                    ui.add(egui::Slider::new(&mut value, 0.0..=1.0));
-                    ui.label("Gamma");
-                    ui.add(egui::DragValue::new(&mut value));
-                });
-
-            egui::Window::new("Skybox").show(ctx, |ui| {
-                ui.checkbox(&mut true, "Enabled");
-            });
-        })
+        self.ctx.run(input, ui)
     }
 
     pub fn render(
