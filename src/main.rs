@@ -42,7 +42,7 @@ use crate::phong_light::PhongLight;
 
 #[derive(Default)]
 struct AppSettings {
-    skybox_enabled: bool,
+    skybox_disabled: bool,
     postprocess: PostprocessSettings,
 }
 
@@ -66,7 +66,7 @@ impl AppSettings {
         });
 
         egui::Window::new("Skybox").show(ctx, |ui| {
-            ui.checkbox(&mut true, "Enabled");
+            ui.checkbox(&mut self.skybox_disabled, "Disable");
         });
     }
 
@@ -193,10 +193,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             let time = time.elapsed();
 
                             let time_ms = (time - last_time).as_secs_f32();
-
-                            let tick = 1.0 / 60.0;
-                            let tick_delta = time_ms / tick;
-
                             let ui_update = ui.update(window, |ctx| settings.render(ctx, time_ms));
 
                             let spass_bg = shadow_pass
@@ -215,14 +211,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     &gpu_scene,
                                 )
                                 .unwrap();
-                            let frame = phong_pass.render(
+                            let mut frame = phong_pass.render(
                                 gpu,
                                 &scene_uniform,
                                 &material_atlas,
                                 &gpu_scene,
                                 spass_bg,
                             );
-                            let frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                            if !settings.skybox_disabled {
+                                frame = skybox_pass.render(gpu, &scene_uniform, frame);
+                            }
                             let frame = postprocess_pass.render(
                                 gpu,
                                 settings.postprocess_settings(),
