@@ -37,7 +37,7 @@ impl PostprocessSettings {
 
 impl Default for PostprocessSettings {
     fn default() -> Self {
-        Self::new(1.0, 0.0, 1.0, 0.45)
+        Self::new(0.0, 1.0, 1.0, 0.45)
     }
 }
 

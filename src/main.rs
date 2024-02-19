@@ -52,20 +52,11 @@ impl AppSettings {
             .resizable(true)
             .show(ctx, |ui| {
                 ui.label("Saturation");
-                ui.add(egui::Slider::new(
-                    self.postprocess.saturation_mut(),
-                    0.0..=10.0,
-                ));
+                ui.add(egui::DragValue::new(self.postprocess.saturation_mut()).speed(0.01));
                 ui.label("Brightness");
-                ui.add(egui::Slider::new(
-                    self.postprocess.brightness_mut(),
-                    0.0..=10.0,
-                ));
+                ui.add(egui::DragValue::new(self.postprocess.brightness_mut()).speed(0.01));
                 ui.label("Contrast");
-                ui.add(egui::Slider::new(
-                    self.postprocess.contrast_mut(),
-                    0.0..=12.0,
-                ));
+                ui.add(egui::DragValue::new(self.postprocess.contrast_mut()).speed(0.01));
                 ui.label("Gamma");
                 ui.add(egui::DragValue::new(self.postprocess.gamma_mut()).speed(0.01));
             });

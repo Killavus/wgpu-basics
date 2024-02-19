@@ -68,5 +68,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var saturation = settings.b_c_s_g.z;
     var gamma = settings.b_c_s_g.w;
 
-    return vec4<f32>(gamma(saturation(contrastBrightness(brightness, contrast, color.xyz), saturation), gamma), 1.0);
+    return vec4<f32>(gamma(saturation(contrastBrightness(contrast, brightness, color.xyz), saturation), gamma), 1.0);
 }
