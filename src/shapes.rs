@@ -5,13 +5,73 @@ type FVec2 = na::Vector2<f32>;
 
 use crate::mesh::{Geometry, NormalSource, TangentSpaceInformation};
 
+pub struct UVSphere;
+
+impl UVSphere {
+    pub fn geometry(slices: usize, stacks: usize) -> Geometry {
+        let stack_angle = std::f32::consts::PI / stacks as f32;
+        let slice_angle = 2.0 * std::f32::consts::PI / slices as f32;
+
+        let mut mesh = vec![na::Vector3::new(0.0, 1.0, 0.0)];
+
+        for i in 0..(stacks - 1) {
+            let angle = (i + 1) as f32 * stack_angle;
+            let y = angle.cos();
+            let r = angle.sin();
+
+            for i in 0..slices {
+                let angle = i as f32 * slice_angle;
+                let x = r * angle.cos();
+                let z = r * angle.sin();
+
+                mesh.push(na::Vector3::new(x, y, z));
+            }
+        }
+
+        mesh.push(na::Vector3::new(0.0, -1.0, 0.0));
+
+        let mut faces: Vec<u32> = vec![];
+        let top_vert = 0;
+        let bottom_vert = (mesh.len() - 1) as u32;
+
+        for i in 0..slices {
+            let i0 = i + 1;
+            let i1 = (i + 1) % slices + 1;
+
+            faces.push(top_vert);
+            faces.push(i1 as u32);
+            faces.push(i0 as u32);
+
+            faces.push(bottom_vert);
+            faces.push(bottom_vert - i1 as u32);
+            faces.push(bottom_vert - i0 as u32);
+        }
+
+        for i in 1..(stacks - 1) {
+            for j in 0..slices {
+                let t0 = (i - 1) * slices + j + 1;
+                let t1 = (i - 1) * slices + (j + 1) % slices + 1;
+                let b0 = i * slices + j + 1;
+                let b1 = i * slices + (j + 1) % slices + 1;
+
+                faces.push(t0 as u32);
+                faces.push(b1 as u32);
+                faces.push(b0 as u32);
+                faces.push(b1 as u32);
+                faces.push(t0 as u32);
+                faces.push(t1 as u32);
+            }
+        }
+
+        let normals = mesh.iter().map(|v| v.normalize()).collect::<Vec<_>>();
+
+        Geometry::new_indexed(mesh, NormalSource::Provided(normals), faces, None)
+    }
+}
+
 pub struct Plane;
 
 impl Plane {
-    pub fn new() -> Self {
-        Self
-    }
-
     pub(self) fn raw_geometry() -> (Vec<na::Vector3<f32>>, Vec<na::Vector3<f32>>, Vec<u32>) {
         let mut mesh = vec![];
         let mut faces = vec![];

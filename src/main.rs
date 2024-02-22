@@ -5,6 +5,7 @@ use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use scene::GpuScene;
 use scene_uniform::SceneUniform;
 use shadow_pass::DirectionalShadowPass;
+use shapes::UVSphere;
 use skybox_pass::SkyboxPass;
 use winit::{
     dpi::{LogicalSize, PhysicalPosition},

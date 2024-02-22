@@ -7,7 +7,7 @@ use crate::{
     phong_light::PhongLightScene,
     projection::{wgpu_projection, GpuProjection},
     scene::{Instance, Scene, SceneModelBuilder, SceneObjectId},
-    shapes::{Cube, Plane},
+    shapes::{Cube, Plane, UVSphere},
 };
 use anyhow::Result;
 use nalgebra as na;
@@ -94,6 +94,11 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let plane_mesh = MeshBuilder::new()
         .with_geometry(Plane::geometry())
         .build()?;
+
+    let sphere_mesh = MeshBuilder::new()
+        .with_geometry(UVSphere::geometry(32, 32))
+        .build()?;
+
     let (teapot_mesh, _) = ObjLoader::load(
         "./models/teapot.obj",
         gpu,
@@ -115,6 +120,8 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     let teapot = scene.load_model(SceneModelBuilder::default().with_meshes(teapot_mesh));
     let cube = scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_mesh]));
     let plane = scene.load_model(SceneModelBuilder::default().with_meshes(vec![plane_mesh]));
+    let uv_sphere = scene.load_model(SceneModelBuilder::default().with_meshes(vec![sphere_mesh]));
+
     let cube_uv_nmap =
         scene.load_model(SceneModelBuilder::default().with_meshes(vec![cube_uvtb_mesh]));
 
@@ -173,6 +180,14 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
                 * na::Matrix4::new_rotation(na::Vector3::y() * 45.0f32.to_radians())
                 * na::Matrix4::new_scaling(1.0),
         ),
+        quite_red,
+    );
+
+    scene.add_object_with_material(
+        uv_sphere,
+        Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
+            5.0, 2.0, -4.0,
+        ))),
         quite_red,
     );
 
