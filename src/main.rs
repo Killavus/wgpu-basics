@@ -1,9 +1,6 @@
-use std::borrow::Cow;
-
 use anyhow::Result;
 use image::EncodableLayout;
 
-use naga_oil::compose::{ComposableModuleDescriptor, NagaModuleDescriptor};
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use scene::GpuScene;
 use scene_uniform::SceneUniform;
@@ -28,6 +25,7 @@ mod postprocess_pass;
 mod projection;
 mod scene;
 mod scene_uniform;
+mod shader_compiler;
 mod shadow_pass;
 mod shapes;
 mod skybox_pass;
@@ -80,8 +78,6 @@ impl AppSettings {
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
-
-    let module = compose_shad();
 
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
         test_scenes::teapot_scene(&gpu)?;
@@ -375,54 +371,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         .unwrap();
 
     Ok(())
-}
-
-fn compose_shad() -> wgpu::naga::Module {
-    use naga_oil::compose::{Composer, ShaderDefValue};
-
-    let mut composer = Composer::default();
-
-    let files = &[
-        "./shad/instances/model.wgsl",
-        "./shad/materials/phong_solid.wgsl",
-        "./shad/phong/vertex_output.wgsl",
-        "./shad/phong/light_defs.wgsl",
-        "./shad/phong/bindings.wgsl",
-        "./shad/phong/light_functions.wgsl",
-        "./shad/materials/phong_textured.wgsl",
-        "./shad/global_bindings.wgsl",
-        "./shad/vertex_data.wgsl",
-    ];
-
-    for file in files {
-        let content = std::fs::read_to_string(file).unwrap();
-        composer
-            .add_composable_module(ComposableModuleDescriptor {
-                source: &content,
-                file_path: file,
-                language: naga_oil::compose::ShaderLanguage::Wgsl,
-                ..Default::default()
-            })
-            .unwrap();
-    }
-
-    let module = composer.make_naga_module(NagaModuleDescriptor {
-        source: &std::fs::read_to_string("./shad/test.wgsl").unwrap(),
-        file_path: "./shad/test.wgsl",
-        shader_type: naga_oil::compose::ShaderType::Wgsl,
-        shader_defs: [
-            ("VERTEX_PN".into(), ShaderDefValue::Bool(true)),
-            ("MATERIAL_PHONG_SOLID".into(), ShaderDefValue::Bool(true)),
-        ]
-        .into(),
-        ..Default::default()
-    });
-
-    if let Err(e) = module.as_ref() {
-        println!("{}", e.emit_to_string(&composer));
-    }
-
-    module.unwrap()
 }
 
 #[tokio::main]
