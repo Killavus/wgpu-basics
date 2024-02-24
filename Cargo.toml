@@ -15,6 +15,7 @@ encase = { version = "0.7.0", features = ["nalgebra"] }
 image = "0.24.8"
 naga_oil = "0.13.0"
 nalgebra = { version = "0.32.3", features = ["bytemuck"] }
+rand = "0.8.5"
 tobj = "4.0.1"
 tokio = { version = "1.35.1", features = ["full"] }
 wgpu = { version = "0.19.0", features = ["wgc", "naga-ir"] }

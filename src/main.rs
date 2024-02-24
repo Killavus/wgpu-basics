@@ -5,7 +5,6 @@ use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use scene::GpuScene;
 use scene_uniform::SceneUniform;
 use shadow_pass::DirectionalShadowPass;
-use shapes::UVSphere;
 use skybox_pass::SkyboxPass;
 use winit::{
     dpi::{LogicalSize, PhysicalPosition},
@@ -80,13 +79,13 @@ impl AppSettings {
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
 
-    let (scene, material_atlas, lights, mut camera, projection, projection_mat, scene_objects) =
+    let (scene, material_atlas, lights, mut camera, projection, projection_mat, _) =
         test_scenes::teapot_scene(&gpu)?;
 
     let mut ui = ui::Ui::new(&window, &gpu)?;
-    let mut settings = AppSettings::default();
+    let mut settings: AppSettings = AppSettings::default();
 
-    let mut gpu_scene = GpuScene::new(&gpu, scene)?;
+    let gpu_scene = GpuScene::new(&gpu, scene)?;
 
     let (sky_width, sky_height, sky_data) = [
         image::open("./textures/skybox/posx.jpg")?,
