@@ -1,11 +1,9 @@
 #import gpubasics::global::bindings::{camera, projection};
 #import gpubasics::phong::bindings;
-
 #import gpubasics::phong::vertex_output::VertexOutput;
+#import gpubasics::phong::light_functions::fragmentLight;
 #import gpubasics::instances::model::{Instance, model, model_invt};
 #import gpubasics::vertex_data::Vertex;
-#import gpubasics::phong::light_functions::fragmentLight;
-
 
 @vertex
 fn vs_main(v: Vertex, i: Instance) -> VertexOutput {

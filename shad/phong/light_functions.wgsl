@@ -4,16 +4,10 @@
 #import gpubasics::phong::light_defs::{Light};
 #import gpubasics::phong::vertex_output::VertexOutput;
 
-#ifdef MATERIAL_PHONG_SOLID
-#import gpubasics::materials::phong_solid::{normal, materialDiffuse, materialSpecular, materialAmbient, shininess};
-#endif
-
-#ifdef MATERIAL_PHONG_TEXTURED
-#import gpubasics::materials::phong_textured::{normal, materialDiffuse, materialSpecular, materialAmbient, shininess};
-#endif
+#import gpubasics::phong::material_bindings::{normal, materialDiffuse, materialSpecular, materialAmbient, shininess};
 
 #ifdef SHADOW_MAP
-#import gpubasics::csm::phong::calculateShadow;
+#import gpubasics::phong::cascaded_shadow_map::calculateShadow;
 #endif
 
 fn attenuation(lightDistance: f32, light: Light) -> f32 {

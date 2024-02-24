@@ -2,6 +2,7 @@ use std::num::NonZeroU64;
 
 use anyhow::Result;
 use encase::{ShaderSize, ShaderType, UniformBuffer};
+use naga_oil::compose::ShaderDefValue;
 use nalgebra as na;
 
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
     phong_light::PhongLight,
     projection::wgpu_projection,
     scene::{GpuScene, Instance},
+    shader_compiler::ShaderCompiler,
 };
 
 pub struct DirectionalShadowPass {
@@ -102,6 +104,7 @@ fn split_frustum(
 impl DirectionalShadowPass {
     pub fn new(
         gpu: &Gpu,
+        shader_compiler: &mut ShaderCompiler,
         splits: [f32; SPLIT_COUNT],
         projection_mat: &na::Matrix4<f32>,
     ) -> Result<Self> {
@@ -120,9 +123,20 @@ impl DirectionalShadowPass {
             view_formats: &[],
         });
 
-        let shader = gpu.shader_from_file("./shaders/shadowMap.wgsl")?;
-        let pnuv_shader = gpu.shader_from_file("./shaders/shadowMapPNUV.wgsl")?;
-        let pntbuv_shader = gpu.shader_from_file("./shaders/shadowMapPNTBUV.wgsl")?;
+        let shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shad/csm/main.wgsl",
+            vec![("VERTEX_PN".into(), ShaderDefValue::Bool(true))],
+        )?);
+
+        let pnuv_shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shad/csm/main.wgsl",
+            vec![("VERTEX_PNUV".into(), ShaderDefValue::Bool(true))],
+        )?);
+
+        let pntbuv_shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shad/csm/main.wgsl",
+            vec![("VERTEX_PNTBUV".into(), ShaderDefValue::Bool(true))],
+        )?);
 
         let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
         let offset = mat4_size.max(MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT);

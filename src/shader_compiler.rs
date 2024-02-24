@@ -19,7 +19,8 @@ impl ShaderCompiler {
             "./shad/phong/light_defs.wgsl",
             "./shad/materials/phong_solid.wgsl",
             "./shad/materials/phong_textured.wgsl",
-            "./shad/csm/phong.wgsl",
+            "./shad/phong/material_bindings.wgsl",
+            "./shad/phong/cascaded_shadow_map.wgsl",
             "./shad/phong/bindings.wgsl",
             "./shad/phong/light_functions.wgsl",
         ];

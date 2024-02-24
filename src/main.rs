@@ -145,9 +145,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     });
 
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
-
-    let shadow_pass = DirectionalShadowPass::new(&gpu, [0.2, 0.5, 1.0], &projection_mat)?;
     let mut shader_compiler = ShaderCompiler::new()?;
+
+    let shadow_pass =
+        DirectionalShadowPass::new(&gpu, &mut shader_compiler, [0.2, 0.5, 1.0], &projection_mat)?;
 
     let phong_pass = PhongPass::new(
         &gpu,

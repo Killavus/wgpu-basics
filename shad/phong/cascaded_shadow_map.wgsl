@@ -1,14 +1,7 @@
-#define_import_path gpubasics::csm::phong
+#define_import_path gpubasics::phong::cascaded_shadow_map
 #import gpubasics::phong::vertex_output::VertexOutput;
 
-#ifdef MATERIAL_PHONG_SOLID
-#import gpubasics::materials::phong_solid::{normal};
-#endif
-
-#ifdef MATERIAL_PHONG_TEXTURED
-#import gpubasics::materials::phong_textured::{normal};
-#endif
-
+#import gpubasics::phong::material_bindings::normal;
 
 struct ShadowMapResult {
     num_splits: u32,
