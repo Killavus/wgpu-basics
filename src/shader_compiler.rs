@@ -1,50 +1,61 @@
+use anyhow::Result;
 use naga_oil::compose::{
     ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
 };
 
-// TODO: Make its interface public.
-fn compose_shad() -> wgpu::naga::Module {
-    let mut composer = Composer::default();
+pub struct ShaderCompiler {
+    composer: Composer,
+}
 
-    let files = &[
-        "./shad/instances/model.wgsl",
-        "./shad/materials/phong_solid.wgsl",
-        "./shad/phong/vertex_output.wgsl",
-        "./shad/phong/light_defs.wgsl",
-        "./shad/phong/bindings.wgsl",
-        "./shad/phong/light_functions.wgsl",
-        "./shad/materials/phong_textured.wgsl",
-        "./shad/global_bindings.wgsl",
-        "./shad/vertex_data.wgsl",
-    ];
+impl ShaderCompiler {
+    pub fn new() -> Result<Self> {
+        let mut composer = Composer::default();
 
-    for file in files {
-        let content = std::fs::read_to_string(file).unwrap();
-        composer
-            .add_composable_module(ComposableModuleDescriptor {
+        let files = &[
+            "./shad/vertex_data.wgsl",
+            "./shad/global_bindings.wgsl",
+            "./shad/instances/model.wgsl",
+            "./shad/phong/vertex_output.wgsl",
+            "./shad/phong/light_defs.wgsl",
+            "./shad/materials/phong_solid.wgsl",
+            "./shad/materials/phong_textured.wgsl",
+            "./shad/csm/phong.wgsl",
+            "./shad/phong/bindings.wgsl",
+            "./shad/phong/light_functions.wgsl",
+        ];
+
+        for file in files {
+            let content = std::fs::read_to_string(file).unwrap();
+            composer.add_composable_module(ComposableModuleDescriptor {
                 source: &content,
                 file_path: file,
                 language: naga_oil::compose::ShaderLanguage::Wgsl,
                 ..Default::default()
+            })?;
+        }
+
+        Ok(Self { composer })
+    }
+
+    pub fn compile(
+        &mut self,
+        path: &str,
+        shader_defs: Vec<(String, ShaderDefValue)>,
+    ) -> Result<wgpu::naga::Module> {
+        use std::collections::HashMap;
+        use std::fs;
+
+        let module = self
+            .composer
+            .make_naga_module(NagaModuleDescriptor {
+                source: &fs::read_to_string(path)?,
+                file_path: path,
+                shader_type: naga_oil::compose::ShaderType::Wgsl,
+                shader_defs: HashMap::from_iter(shader_defs),
+                additional_imports: &[],
             })
-            .unwrap();
+            .inspect_err(|e| eprintln!("{}", e.emit_to_string(&self.composer)))?;
+
+        Ok(module)
     }
-
-    let module = composer.make_naga_module(NagaModuleDescriptor {
-        source: &std::fs::read_to_string("./shad/test.wgsl").unwrap(),
-        file_path: "./shad/test.wgsl",
-        shader_type: naga_oil::compose::ShaderType::Wgsl,
-        shader_defs: [
-            ("VERTEX_PN".into(), ShaderDefValue::Bool(true)),
-            ("MATERIAL_PHONG_SOLID".into(), ShaderDefValue::Bool(true)),
-        ]
-        .into(),
-        ..Default::default()
-    });
-
-    if let Err(e) = module.as_ref() {
-        println!("{}", e.emit_to_string(&composer));
-    }
-
-    module.unwrap()
 }

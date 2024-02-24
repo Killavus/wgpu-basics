@@ -4,6 +4,7 @@ use image::EncodableLayout;
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
 use scene::GpuScene;
 use scene_uniform::SceneUniform;
+use shader_compiler::ShaderCompiler;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
 use winit::{
@@ -146,8 +147,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
 
     let shadow_pass = DirectionalShadowPass::new(&gpu, [0.2, 0.5, 1.0], &projection_mat)?;
+    let mut shader_compiler = ShaderCompiler::new()?;
+
     let phong_pass = PhongPass::new(
         &gpu,
+        &mut shader_compiler,
         &scene_uniform,
         &lights,
         &material_atlas,

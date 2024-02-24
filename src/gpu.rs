@@ -128,6 +128,14 @@ impl<'window> Gpu<'window> {
             })
     }
 
+    pub fn shader_from_module(&self, module: wgpu::naga::Module) -> wgpu::ShaderModule {
+        self.device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
+            })
+    }
+
     pub fn aspect_ratio(&self) -> f32 {
         self.surface_config.width as f32 / self.surface_config.height as f32
     }

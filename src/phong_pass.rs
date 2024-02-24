@@ -5,9 +5,11 @@ use crate::{
     phong_light::PhongLightScene,
     scene::{GpuScene, Instance},
     scene_uniform::SceneUniform,
+    shader_compiler::ShaderCompiler,
 };
 use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
+use naga_oil::compose::ShaderDefValue;
 
 pub struct PhongPass {
     lights_bg: wgpu::BindGroup,
@@ -27,6 +29,7 @@ struct PhongPipelines {
 impl PhongPass {
     pub fn new(
         gpu: &Gpu,
+        shader_compiler: &mut ShaderCompiler,
         scene_uniform: &SceneUniform,
         lights: &PhongLightScene,
         material_atlas: &MaterialAtlas,
@@ -47,9 +50,42 @@ impl PhongPass {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        let solid_shader = gpu.shader_from_file("./shaders/phong.wgsl")?;
-        let textured_shader = gpu.shader_from_file("./shaders/phongTextured.wgsl")?;
-        let textured_normal_shader = gpu.shader_from_file("./shaders/phongTexturedNormal.wgsl")?;
+        let solid_shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shad/phong.wgsl",
+            vec![
+                ("VERTEX_PN".to_owned(), ShaderDefValue::Bool(true)),
+                (
+                    "MATERIAL_PHONG_SOLID".to_owned(),
+                    ShaderDefValue::Bool(true),
+                ),
+                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
+            ],
+        )?);
+
+        let textured_shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shad/phong.wgsl",
+            vec![
+                ("VERTEX_PNUV".to_owned(), ShaderDefValue::Bool(true)),
+                (
+                    "MATERIAL_PHONG_TEXTURED".to_owned(),
+                    ShaderDefValue::Bool(true),
+                ),
+                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
+            ],
+        )?);
+
+        let textured_normal_shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shad/phong.wgsl",
+            vec![
+                ("VERTEX_PNTBUV".to_owned(), ShaderDefValue::Bool(true)),
+                (
+                    "MATERIAL_PHONG_TEXTURED".to_owned(),
+                    ShaderDefValue::Bool(true),
+                ),
+                ("NORMAL_MAP".to_owned(), ShaderDefValue::Bool(true)),
+                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
+            ],
+        )?);
 
         // Lights buffer:
         let lights_bgl = gpu

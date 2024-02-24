@@ -21,11 +21,11 @@ fn vs_main(v: Vertex, i: Instance) -> VertexOutput {
     out.w_pos = world_v;
     out.c_pos = camera_v;
 
-    #ifdef VERTEX_PN || VERTEX_PNUV
+    #ifndef VERTEX_PNTBUV
     out.normal = normalize(inv_model_t * vec4(v.normal_v, 0.0));
     #endif
 
-    #ifdef VERTEX_PNBTUV
+    #ifdef VERTEX_PNTBUV
     // Since we are averaging tangents and bitangents for shared vertices
     // they can be not orthogonal to normal anymore.
     // We can apply Gram-Schmidt process to re-orthogonalize them.
@@ -37,7 +37,7 @@ fn vs_main(v: Vertex, i: Instance) -> VertexOutput {
     out.b = cross(out.n, out.t);
     #endif
 
-    #ifdef VERTEX_PNUV || VERTEX_PNBTUV
+    #ifndef VERTEX_PN
     out.uv = v.uv;
     #endif
 
