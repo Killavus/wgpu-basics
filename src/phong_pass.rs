@@ -179,7 +179,7 @@ impl PhongPass {
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -214,7 +214,7 @@ impl PhongPass {
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
-                        depth_compare: wgpu::CompareFunction::Less,
+                        depth_compare: wgpu::CompareFunction::LessEqual,
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -249,7 +249,7 @@ impl PhongPass {
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
-                        depth_compare: wgpu::CompareFunction::Less,
+                        depth_compare: wgpu::CompareFunction::LessEqual,
                         stencil: Default::default(),
                         bias: Default::default(),
                     }),
@@ -280,6 +280,7 @@ impl PhongPass {
         atlas: &MaterialAtlas,
         scene: &GpuScene,
         shadow_bg: &wgpu::BindGroup,
+        with_prepass: bool,
     ) -> wgpu::SurfaceTexture {
         let mut encoder = gpu
             .device
@@ -305,7 +306,11 @@ impl PhongPass {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: if with_prepass {
+                            wgpu::LoadOp::Load
+                        } else {
+                            wgpu::LoadOp::Clear(1.0)
+                        },
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,

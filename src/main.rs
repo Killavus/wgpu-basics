@@ -1,4 +1,5 @@
 use anyhow::Result;
+use depth_prepass::DepthPrepass;
 use image::EncodableLayout;
 
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
@@ -16,6 +17,7 @@ use winit::{
 };
 
 mod camera;
+mod depth_prepass;
 mod gpu;
 mod loader;
 mod material;
@@ -45,6 +47,7 @@ use crate::phong_light::PhongLight;
 #[derive(Default)]
 struct AppSettings {
     skybox_disabled: bool,
+    depth_prepass_enabled: bool,
     postprocess: PostprocessSettings,
 }
 
@@ -67,8 +70,9 @@ impl AppSettings {
             ui.label(format!("FPS: {:.2}", 1.0 / time_delta));
         });
 
-        egui::Window::new("Skybox").show(ctx, |ui| {
-            ui.checkbox(&mut self.skybox_disabled, "Disable");
+        egui::Window::new("Optional passes").show(ctx, |ui| {
+            ui.checkbox(&mut self.skybox_disabled, "Disable Skybox");
+            ui.checkbox(&mut self.depth_prepass_enabled, "Enable Depth Prepass");
         });
     }
 
@@ -150,6 +154,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let shadow_pass =
         DirectionalShadowPass::new(&gpu, &mut shader_compiler, [0.2, 0.5, 1.0], &projection_mat)?;
 
+    let depth_prepass = DepthPrepass::new(&gpu, &mut shader_compiler, &scene_uniform)?;
+
     let phong_pass = PhongPass::new(
         &gpu,
         &mut shader_compiler,
@@ -208,6 +214,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             let time_ms = (time - last_time).as_secs_f32();
                             let ui_update = ui.update(window, |ctx| settings.render(ctx, time_ms));
 
+                            if settings.depth_prepass_enabled {
+                                depth_prepass.render(gpu, &scene_uniform, &gpu_scene);
+                            }
+
                             let spass_bg = shadow_pass
                                 .render(
                                     gpu,
@@ -224,13 +234,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     &gpu_scene,
                                 )
                                 .unwrap();
+
                             let mut frame = phong_pass.render(
                                 gpu,
                                 &scene_uniform,
                                 &material_atlas,
                                 &gpu_scene,
                                 spass_bg,
+                                settings.depth_prepass_enabled,
                             );
+
                             if !settings.skybox_disabled {
                                 frame = skybox_pass.render(gpu, &scene_uniform, frame);
                             }
