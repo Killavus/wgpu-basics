@@ -145,7 +145,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     });
 
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
-    let mut shader_compiler = ShaderCompiler::new("./shad")?;
+    let mut shader_compiler = ShaderCompiler::new("./shaders")?;
 
     let shadow_pass =
         DirectionalShadowPass::new(&gpu, &mut shader_compiler, [0.2, 0.5, 1.0], &projection_mat)?;

@@ -158,7 +158,7 @@ impl PostprocessPass {
             });
 
         let shader = gpu.shader_from_module(
-            shader_compiler.compile("./shad/screenspace/postprocess.wgsl", vec![])?,
+            shader_compiler.compile("./shaders/screenspace/postprocess.wgsl", vec![])?,
         );
 
         let pipeline = gpu

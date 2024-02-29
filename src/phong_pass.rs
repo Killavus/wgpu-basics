@@ -51,7 +51,7 @@ impl PhongPass {
             });
 
         let solid_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shad/phong/main.wgsl",
+            "./shaders/phong/main.wgsl",
             vec![
                 ("VERTEX_PN".to_owned(), ShaderDefValue::Bool(true)),
                 (
@@ -63,7 +63,7 @@ impl PhongPass {
         )?);
 
         let textured_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shad/phong/main.wgsl",
+            "./shaders/phong/main.wgsl",
             vec![
                 ("VERTEX_PNUV".to_owned(), ShaderDefValue::Bool(true)),
                 (
@@ -75,7 +75,7 @@ impl PhongPass {
         )?);
 
         let textured_normal_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shad/phong/main.wgsl",
+            "./shaders/phong/main.wgsl",
             vec![
                 ("VERTEX_PNTBUV".to_owned(), ShaderDefValue::Bool(true)),
                 (

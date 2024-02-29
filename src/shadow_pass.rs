@@ -124,17 +124,17 @@ impl DirectionalShadowPass {
         });
 
         let shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shad/shadow/csm.wgsl",
+            "./shaders/shadow/csm.wgsl",
             vec![("VERTEX_PN".into(), ShaderDefValue::Bool(true))],
         )?);
 
         let pnuv_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shad/shadow/csm.wgsl",
+            "./shaders/shadow/csm.wgsl",
             vec![("VERTEX_PNUV".into(), ShaderDefValue::Bool(true))],
         )?);
 
         let pntbuv_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shad/shadow/csm.wgsl",
+            "./shaders/shadow/csm.wgsl",
             vec![("VERTEX_PNTBUV".into(), ShaderDefValue::Bool(true))],
         )?);
 
