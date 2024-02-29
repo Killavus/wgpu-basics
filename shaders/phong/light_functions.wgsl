@@ -32,13 +32,14 @@ fn phongLighting(in: VertexOutput, lightDirection: vec3<f32>, attenuation: f32, 
 
     var viewPosition = camera_model[3].xyz;
     var viewDirection = normalize(viewPosition - in.w_pos.xyz);
-    var halfway = normalize(normalize(lightDirection) + viewDirection);
+    var halfway = normalize(lightDirection + viewDirection);
 
     color += lAmbient * mAmbient;
     var diffuseCoeff = max(dot(n, lightDirection), 0.0);
     color += notShadowed * mDiffuse * attenuation * diffuseCoeff * lDiffuse;
-    var specularCoeff = pow(max(dot(viewDirection, halfway), 0.0), mShininess);
-    color += notShadowed * mSpecular * (attenuation * specularCoeff * lSpecular);
+
+    var specularCoeff = max(pow(max(dot(n, halfway), 0.0), mShininess), 0.0);
+    color += notShadowed * mSpecular * attenuation * specularCoeff * lSpecular;
 
     return color;
 }
