@@ -1,4 +1,4 @@
-use crate::gpu::Gpu;
+use crate::{gpu::Gpu, shader_compiler::ShaderCompiler};
 use anyhow::Result;
 use encase::{ShaderSize, ShaderType, UniformBuffer};
 use nalgebra as na;
@@ -50,7 +50,11 @@ impl PostprocessSettings {
 }
 
 impl PostprocessPass {
-    pub fn new(gpu: &Gpu, settings: &PostprocessSettings) -> Result<Self> {
+    pub fn new(
+        gpu: &Gpu,
+        shader_compiler: &mut ShaderCompiler,
+        settings: &PostprocessSettings,
+    ) -> Result<Self> {
         let tex_size = gpu.viewport_size();
 
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -153,7 +157,9 @@ impl PostprocessPass {
                 push_constant_ranges: &[],
             });
 
-        let shader = gpu.shader_from_file("shaders/postprocess.wgsl")?;
+        let shader = gpu.shader_from_module(
+            shader_compiler.compile("./shad/screenspace/postprocess.wgsl", vec![])?,
+        );
 
         let pipeline = gpu
             .device

@@ -159,9 +159,16 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         shadow_pass.out_bind_group_layout(),
     )?;
 
-    let mut postprocess_pass = PostprocessPass::new(&gpu, settings.postprocess_settings())?;
+    let mut postprocess_pass =
+        PostprocessPass::new(&gpu, &mut shader_compiler, settings.postprocess_settings())?;
 
-    let skybox_pass = SkyboxPass::new(&gpu, &scene_uniform, skybox_tex, skybox_sampler)?;
+    let skybox_pass = SkyboxPass::new(
+        &gpu,
+        &mut shader_compiler,
+        &scene_uniform,
+        skybox_tex,
+        skybox_sampler,
+    )?;
 
     let window: &Window = &window;
 

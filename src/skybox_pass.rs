@@ -2,6 +2,7 @@ use crate::{
     gpu::Gpu,
     mesh::{Mesh, MeshBuilder},
     scene_uniform::SceneUniform,
+    shader_compiler::ShaderCompiler,
     shapes::Cube,
 };
 use anyhow::Result;
@@ -16,6 +17,7 @@ pub struct SkyboxPass {
 impl SkyboxPass {
     pub fn new(
         gpu: &Gpu,
+        shader_compiler: &mut ShaderCompiler,
         scene_uniform: &SceneUniform,
         skybox_tex: wgpu::Texture,
         skybox_sampler: wgpu::Sampler,
@@ -88,7 +90,8 @@ impl SkyboxPass {
             ],
         });
 
-        let shader = gpu.shader_from_file("./shaders/skybox.wgsl")?;
+        let shader =
+            gpu.shader_from_module(shader_compiler.compile("./shad/skybox/simple.wgsl", vec![])?);
 
         let pipelinel = gpu
             .device
