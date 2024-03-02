@@ -1,15 +1,28 @@
 #define_import_path gpubasics::materials::phong_textured
 #import gpubasics::phong::vertex_output::VertexOutput;
 
+#ifdef DEFERRED
+@group(1) @binding(0) var diffuse_t: texture_2d<f32>;
+@group(1) @binding(1) var specular_t: texture_2d<f32>;
+    #ifdef NORMAL_MAP
+    @group(1) @binding(2) var normal_t: texture_2d<f32>;
+    @group(1) @binding(3) var mat_sampler: sampler;
+    @group(1) @binding(4) var<uniform> uShininess: f32;
+    #else
+    @group(1) @binding(2) var mat_sampler: sampler;
+    @group(1) @binding(3) var<uniform> uShininess: f32;
+    #endif
+#else
 @group(2) @binding(0) var diffuse_t: texture_2d<f32>;
 @group(2) @binding(1) var specular_t: texture_2d<f32>;
-#ifdef NORMAL_MAP
-@group(2) @binding(2) var normal_t: texture_2d<f32>;
-@group(2) @binding(3) var mat_sampler: sampler;
-@group(2) @binding(4) var<uniform> uShininess: f32;
-#else
-@group(2) @binding(2) var mat_sampler: sampler;
-@group(2) @binding(3) var<uniform> uShininess: f32;
+    #ifdef NORMAL_MAP
+    @group(2) @binding(2) var normal_t: texture_2d<f32>;
+    @group(2) @binding(3) var mat_sampler: sampler;
+    @group(2) @binding(4) var<uniform> uShininess: f32;
+    #else
+    @group(2) @binding(2) var mat_sampler: sampler;
+    @group(2) @binding(3) var<uniform> uShininess: f32;
+    #endif
 #endif
 
 fn materialDiffuse(in: VertexOutput) -> vec3<f32> {

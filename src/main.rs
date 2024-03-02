@@ -1,5 +1,4 @@
 use anyhow::Result;
-use depth_prepass::DepthPrepass;
 use image::EncodableLayout;
 
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
@@ -17,13 +16,13 @@ use winit::{
 };
 
 mod camera;
-mod depth_prepass;
+mod deferred;
+mod forward;
 mod gpu;
 mod loader;
 mod material;
 mod mesh;
 mod phong_light;
-mod phong_pass;
 mod postprocess_pass;
 mod projection;
 mod scene;
@@ -35,7 +34,7 @@ mod skybox_pass;
 mod test_scenes;
 mod ui;
 
-use phong_pass::PhongPass;
+use forward::{DepthPrepass, PhongPass};
 
 const MOVE_DELTA: f32 = 1.0;
 const TILT_DELTA: f32 = 1.0;
@@ -43,12 +42,16 @@ const TILT_DELTA: f32 = 1.0;
 use gpu::Gpu;
 
 use crate::phong_light::PhongLight;
+use deferred::GeometryPass;
 
 #[derive(Default)]
 struct AppSettings {
     skybox_disabled: bool,
     depth_prepass_enabled: bool,
     postprocess: PostprocessSettings,
+    debug_normals: bool,
+    debug_diffuse: bool,
+    debug_specular: bool,
 }
 
 impl AppSettings {
@@ -73,6 +76,12 @@ impl AppSettings {
         egui::Window::new("Optional passes").show(ctx, |ui| {
             ui.checkbox(&mut self.skybox_disabled, "Disable Skybox");
             ui.checkbox(&mut self.depth_prepass_enabled, "Enable Depth Prepass");
+        });
+
+        egui::Window::new("Debug").show(ctx, |ui| {
+            ui.checkbox(&mut self.debug_normals, "Debug Normals");
+            ui.checkbox(&mut self.debug_diffuse, "Debug Diffuse");
+            ui.checkbox(&mut self.debug_specular, "Debug Specular");
         });
     }
 
@@ -176,6 +185,9 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         skybox_sampler,
     )?;
 
+    let geometry_pass =
+        GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
+
     let window: &Window = &window;
 
     let gpu = &mut gpu;
@@ -186,6 +198,77 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let time = std::time::Instant::now();
     let mut last_time = time.elapsed();
     let ui = &mut ui;
+
+    let dbg_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        label: None,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+
+    let dbg_bgl = gpu
+        .device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+            ],
+        });
+
+    let dbg_shader = gpu.shader_from_file("./shaders/showTexture.wgsl")?;
+    let dbg_pipeline_l = gpu
+        .device
+        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&dbg_bgl],
+            push_constant_ranges: &[],
+        });
+    let dbg_pipeline = gpu
+        .device
+        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: Some(&dbg_pipeline_l),
+            vertex: wgpu::VertexState {
+                module: &dbg_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &dbg_shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: gpu.swapchain_format(),
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        });
 
     event_loop
         .run(move |event, target| {
@@ -213,6 +296,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
                             let time_ms = (time - last_time).as_secs_f32();
                             let ui_update = ui.update(window, |ctx| settings.render(ctx, time_ms));
+
+                            let g_bufs = geometry_pass.render(
+                                gpu,
+                                &material_atlas,
+                                &scene_uniform,
+                                &gpu_scene,
+                            );
 
                             if settings.depth_prepass_enabled {
                                 depth_prepass.render(gpu, &scene_uniform, &gpu_scene);
@@ -247,11 +337,119 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             if !settings.skybox_disabled {
                                 frame = skybox_pass.render(gpu, &scene_uniform, frame);
                             }
+
                             let frame = postprocess_pass.render(
                                 gpu,
                                 settings.postprocess_settings(),
                                 frame,
                             );
+
+                            if settings.debug_diffuse
+                                || settings.debug_normals
+                                || settings.debug_specular
+                            {
+                                let bg: wgpu::BindGroup;
+                                if settings.debug_diffuse {
+                                    let tv = g_bufs
+                                        .g_diffuse
+                                        .create_view(&wgpu::TextureViewDescriptor::default());
+
+                                    bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                        label: None,
+                                        layout: &dbg_bgl,
+                                        entries: &[
+                                            wgpu::BindGroupEntry {
+                                                binding: 0,
+                                                resource: wgpu::BindingResource::TextureView(&tv),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 1,
+                                                resource: wgpu::BindingResource::Sampler(
+                                                    &dbg_sampler,
+                                                ),
+                                            },
+                                        ],
+                                    });
+                                } else if settings.debug_normals {
+                                    let tv = g_bufs
+                                        .g_normal
+                                        .create_view(&wgpu::TextureViewDescriptor::default());
+
+                                    bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                        label: None,
+                                        layout: &dbg_bgl,
+                                        entries: &[
+                                            wgpu::BindGroupEntry {
+                                                binding: 0,
+                                                resource: wgpu::BindingResource::TextureView(&tv),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 1,
+                                                resource: wgpu::BindingResource::Sampler(
+                                                    &dbg_sampler,
+                                                ),
+                                            },
+                                        ],
+                                    });
+                                } else {
+                                    let tv = g_bufs
+                                        .g_specular
+                                        .create_view(&wgpu::TextureViewDescriptor::default());
+
+                                    bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                        label: None,
+                                        layout: &dbg_bgl,
+                                        entries: &[
+                                            wgpu::BindGroupEntry {
+                                                binding: 0,
+                                                resource: wgpu::BindingResource::TextureView(&tv),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 1,
+                                                resource: wgpu::BindingResource::Sampler(
+                                                    &dbg_sampler,
+                                                ),
+                                            },
+                                        ],
+                                    });
+                                }
+
+                                let mut encoder = gpu.device.create_command_encoder(
+                                    &wgpu::CommandEncoderDescriptor::default(),
+                                );
+                                let frame_view = frame
+                                    .texture
+                                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                                {
+                                    let mut rpass =
+                                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                            label: None,
+                                            color_attachments: &[Some(
+                                                wgpu::RenderPassColorAttachment {
+                                                    view: &frame_view,
+                                                    resolve_target: None,
+                                                    ops: wgpu::Operations {
+                                                        load: wgpu::LoadOp::Clear(
+                                                            wgpu::Color::BLACK,
+                                                        ),
+                                                        store: wgpu::StoreOp::Store,
+                                                    },
+                                                },
+                                            )],
+                                            depth_stencil_attachment: None,
+                                            timestamp_writes: None,
+                                            occlusion_query_set: None,
+                                        });
+
+                                    rpass.set_pipeline(&dbg_pipeline);
+                                    rpass.set_bind_group(0, &bg, &[]);
+                                    rpass.draw(0..4, 0..1);
+                                }
+
+                                gpu.queue.submit(Some(encoder.finish()));
+                            }
+
                             let frame = ui.render(gpu, frame, window, ui_update);
 
                             frame.present();

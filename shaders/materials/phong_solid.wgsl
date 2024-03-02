@@ -2,8 +2,13 @@
 #import gpubasics::phong::vertex_output::VertexOutput;
 
 #ifdef NORMAL_MAP
+#ifdef DEFERRED
+@group(1) @binding(2) var normal_t: texture_2d<f32>;
+@group(1) @binding(3) var mat_sampler: sampler;
+#else
 @group(2) @binding(2) var normal_t: texture_2d<f32>;
 @group(2) @binding(3) var mat_sampler: sampler;
+#endif
 #endif
 
 struct PhongSolidMat {
@@ -12,7 +17,11 @@ struct PhongSolidMat {
     specular: vec4<f32>,
 }
 
+#ifdef DEFERRED
+@group(1) @binding(0) var<uniform> material: PhongSolidMat;
+#else
 @group(2) @binding(0) var<uniform> material: PhongSolidMat;
+#endif
 
 fn materialDiffuse(in: VertexOutput) -> vec3<f32> {
     return material.diffuse.xyz;

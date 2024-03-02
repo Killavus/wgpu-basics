@@ -1,10 +1,14 @@
 #import gpubasics::global::bindings::{camera, projection};
-#import gpubasics::phong::bindings;
-#import gpubasics::phong::vertex_output::VertexOutput;
-#import gpubasics::phong::light_functions::fragmentLight;
+#import gpubasics::phong::material_bindings::{normal, materialDiffuse, materialSpecular};
 #import gpubasics::instances::model::{Instance, model, model_invt};
 #import gpubasics::vertex_data::Vertex;
+#import gpubasics::phong::vertex_output::VertexOutput;
 
+struct GBuffersOutput {
+    @location(0) g_normal: vec4<f32>,
+    @location(1) g_diffuse: vec4<f32>,
+    @location(2) g_specular: vec4<f32>,
+};
 
 @vertex
 fn vs_main(v: Vertex, i: Instance) -> VertexOutput {
@@ -44,8 +48,11 @@ fn vs_main(v: Vertex, i: Instance) -> VertexOutput {
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var color = fragmentLight(in);
+fn fs_main(in: VertexOutput) -> GBuffersOutput {
+    var out: GBuffersOutput;
+    out.g_normal = vec4(normal(in), 1.0);
 
-    return vec4(color, 1.0);
+    out.g_diffuse = vec4(materialDiffuse(in), 1.0);
+    out.g_specular = vec4(materialSpecular(in), 1.0);
+    return out;
 }
