@@ -188,6 +188,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let geometry_pass =
         GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
 
+    let fill_pass = deferred::FillPass::new(
+        &gpu,
+        &mut shader_compiler,
+        &lights,
+        &scene_uniform,
+        geometry_pass.g_buffers(),
+    )?;
+
     let window: &Window = &window;
 
     let gpu = &mut gpu;
@@ -303,6 +311,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 &scene_uniform,
                                 &gpu_scene,
                             );
+
+                            fill_pass.render(gpu, &scene_uniform);
 
                             if settings.depth_prepass_enabled {
                                 depth_prepass.render(gpu, &scene_uniform, &gpu_scene);

@@ -42,6 +42,16 @@ impl SceneUniform {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -60,6 +70,10 @@ impl SceneUniform {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: camera.model_buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: projection.inverse_buffer().as_entire_binding(),
                 },
             ],
         });

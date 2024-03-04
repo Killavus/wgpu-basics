@@ -295,6 +295,10 @@ impl GeometryPass {
         })
     }
 
+    pub fn g_buffers(&self) -> &GBuffers {
+        &self.g_buffers
+    }
+
     pub fn render(
         &self,
         gpu: &Gpu,
