@@ -1,5 +1,4 @@
 use nalgebra as na;
-type FVec4 = na::Vector4<f32>;
 type FVec3 = na::Vector3<f32>;
 type FVec2 = na::Vector2<f32>;
 
