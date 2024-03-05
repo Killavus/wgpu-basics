@@ -5,11 +5,7 @@
 
 #ifdef DEFERRED
 #import gpubasics::deferred::vertex_output::VertexOutput;
-#import gpubasics::deferred::functions::{normal, diffuse as materialDiffuse, specular as materialSpecular, ambient as materialAmbient, worldPos};
-
-fn shininess(in: VertexOutput) -> f32 {
-    return 32.0;
-}
+#import gpubasics::deferred::functions::{normal, diffuse as materialDiffuse, specular as materialSpecular, ambient as materialAmbient, shininess, worldPos};
 #else
 #import gpubasics::phong::vertex_output::VertexOutput;
 #import gpubasics::phong::material_bindings::{normal, materialDiffuse, materialSpecular, materialAmbient, shininess};

@@ -1,5 +1,5 @@
 #import gpubasics::global::bindings::{camera, projection};
-#import gpubasics::phong::material_bindings::{normal, materialDiffuse, materialSpecular};
+#import gpubasics::phong::material_bindings::{normal, materialDiffuse, materialSpecular, shininess};
 #import gpubasics::instances::model::{Instance, model, model_invt};
 #import gpubasics::vertex_data::Vertex;
 #import gpubasics::phong::vertex_output::VertexOutput;
@@ -53,6 +53,6 @@ fn fs_main(in: VertexOutput) -> GBuffersOutput {
     out.g_normal = vec4(normal(in), 1.0);
 
     out.g_diffuse = vec4(materialDiffuse(in), 1.0);
-    out.g_specular = vec4(materialSpecular(in), 1.0);
+    out.g_specular = vec4(materialSpecular(in), shininess(in) / 256.0);
     return out;
 }

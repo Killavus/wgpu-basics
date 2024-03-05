@@ -36,3 +36,7 @@ fn diffuse(in: VertexOutput) -> vec3<f32> {
 fn specular(in: VertexOutput) -> vec3<f32> {
     return textureSample(g_specular, g_sampler, in.uv).rgb;
 }
+
+fn shininess(in: VertexOutput) -> f32 {
+    return textureSample(g_specular, g_sampler, in.uv).a * 256.0;
+}
