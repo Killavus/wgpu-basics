@@ -29,7 +29,7 @@ impl<'window> Gpu<'window> {
                 force_fallback_adapter: false,
             })
             .await
-            .map_or(Err(anyhow::anyhow!("No adapter found")), Ok)?;
+            .ok_or(anyhow::anyhow!("No adapter found"))?;
 
         let (device, queue) = adapter
             .request_device(

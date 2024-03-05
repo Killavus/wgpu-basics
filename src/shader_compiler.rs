@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use naga_oil::compose::{
     ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
 };
@@ -147,7 +147,8 @@ impl ShaderCompiler {
             .map(|module| module_to_file[&module].clone());
 
         for file in files {
-            let content = std::fs::read_to_string(&file).unwrap();
+            let content = std::fs::read_to_string(&file)
+                .context(format!("Failed to read {}", file.display()))?;
             composer.add_composable_module(ComposableModuleDescriptor {
                 source: &content,
                 file_path: file.to_str().ok_or(anyhow::anyhow!("Invalid path"))?,
@@ -169,7 +170,7 @@ impl ShaderCompiler {
         let module = self
             .composer
             .make_naga_module(NagaModuleDescriptor {
-                source: &fs::read_to_string(path)?,
+                source: &fs::read_to_string(path).context(format!("Failed to read {}", path))?,
                 file_path: path,
                 shader_type: naga_oil::compose::ShaderType::Wgsl,
                 shader_defs: HashMap::from_iter(shader_defs),

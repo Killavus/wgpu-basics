@@ -1,4 +1,4 @@
-#define_import_path gpubasics::phong::vertex_output
+#define_import_path gpubasics::forward::outputs::vertex
 
 #ifdef VERTEX_PN
 struct VertexOutput {
@@ -30,3 +30,11 @@ struct VertexOutput {
     @location(5) n: vec3<f32>,
 };
 #endif
+
+fn worldPos(in: VertexOutput) -> vec4<f32> {
+    return in.w_pos;
+}
+
+fn cameraPos(in: VertexOutput) -> vec4<f32> {
+    return in.c_pos;
+}

@@ -8,7 +8,7 @@ use naga_oil::compose::ShaderDefValue;
 
 use super::geometry_pass::GBuffers;
 
-pub struct FillPass {
+pub struct PhongPass {
     pipeline: wgpu::RenderPipeline,
     light_buf: wgpu::Buffer,
     g_sampler: wgpu::Sampler,
@@ -16,7 +16,7 @@ pub struct FillPass {
     fill_bgl: wgpu::BindGroupLayout,
 }
 
-impl FillPass {
+impl PhongPass {
     pub fn new(
         gpu: &Gpu,
         shader_compiler: &mut ShaderCompiler,

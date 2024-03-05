@@ -34,7 +34,7 @@ mod skybox_pass;
 mod test_scenes;
 mod ui;
 
-use forward::{DepthPrepass, PhongPass};
+use forward::DepthPrepass;
 
 const MOVE_DELTA: f32 = 1.0;
 const TILT_DELTA: f32 = 1.0;
@@ -167,7 +167,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let depth_prepass = DepthPrepass::new(&gpu, &mut shader_compiler, &scene_uniform)?;
 
-    let phong_pass = PhongPass::new(
+    let forward_phong_pass = forward::PhongPass::new(
         &gpu,
         &mut shader_compiler,
         &scene_uniform,
@@ -187,7 +187,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let geometry_pass =
         GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
 
-    let fill_pass = deferred::FillPass::new(
+    let deferred_phong_pass = deferred::PhongPass::new(
         &gpu,
         &mut shader_compiler,
         &lights,
@@ -198,7 +198,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut postprocess_pass = PostprocessPass::new(
         &gpu,
         &mut shader_compiler,
-        &fill_pass.output_tex_view(),
+        &deferred_phong_pass.output_tex_view(),
         settings.postprocess_settings(),
     )?;
 
@@ -335,13 +335,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 &gpu_scene,
                             );
 
-                            fill_pass.render(gpu, g_bufs, &scene_uniform, spass_bg);
+                            deferred_phong_pass.render(gpu, g_bufs, &scene_uniform, spass_bg);
 
                             if settings.depth_prepass_enabled {
                                 depth_prepass.render(gpu, &scene_uniform, &gpu_scene);
                             }
 
-                            let mut frame = phong_pass.render(
+                            let mut frame = forward_phong_pass.render(
                                 gpu,
                                 &scene_uniform,
                                 &material_atlas,

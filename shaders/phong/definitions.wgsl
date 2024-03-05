@@ -1,4 +1,4 @@
-#define_import_path gpubasics::phong::light_defs
+#define_import_path gpubasics::phong::definitions
 
 struct Light {
     position: vec4<f32>,

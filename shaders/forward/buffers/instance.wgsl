@@ -1,5 +1,5 @@
 
-#define_import_path gpubasics::instances::model
+#define_import_path gpubasics::forward::buffers::instance
 
 #ifdef VERTEX_PN
 struct Instance {

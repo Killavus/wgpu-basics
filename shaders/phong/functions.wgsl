@@ -1,22 +1,20 @@
-#define_import_path gpubasics::phong::light_functions
+#define_import_path gpubasics::phong::functions
+
 #import gpubasics::global::bindings::camera_model;
-#import gpubasics::phong::bindings::lights;
-#import gpubasics::phong::light_defs::{Light};
+#import gpubasics::phong::definitions::Light;
+
+#import gpubasics::phong::fragment::{fragmentCameraPos, fragmentWorldPos, fragmentNormal, fragmentAmbient, fragmentDiffuse, fragmentSpecular, fragmentShininess};
 
 #ifdef DEFERRED
-#import gpubasics::deferred::vertex_output::VertexOutput;
-#import gpubasics::deferred::functions::{normal, diffuse as materialDiffuse, specular as materialSpecular, ambient as materialAmbient, shininess, worldPos};
+#import gpubasics::deferred::phong::bindings::lights;
+#import gpubasics::deferred::outputs::vertex::VertexOutput;
 #else
-#import gpubasics::phong::vertex_output::VertexOutput;
-#import gpubasics::phong::material_bindings::{normal, materialDiffuse, materialSpecular, materialAmbient, shininess};
-
-fn worldPos(in: VertexOutput) -> vec4<f32> {
-    return in.w_pos;
-}
+#import gpubasics::forward::phong::bindings::lights;
+#import gpubasics::forward::outputs::vertex::VertexOutput;
 #endif
 
 #ifdef SHADOW_MAP
-#import gpubasics::phong::cascaded_shadow_map::calculateShadow;
+#import gpubasics::shadow::cascaded::functions::calculateShadow;
 #endif
 
 fn attenuation(lightDistance: f32, light: Light) -> f32 {
@@ -33,14 +31,14 @@ fn phongLighting(in: VertexOutput, lightDirection: vec3<f32>, attenuation: f32, 
     var lDiffuse = light.diffuse.xyz;
     var lSpecular = light.specular.xyz;
 
-    var n = normal(in);
-    var mAmbient = materialAmbient(in);
-    var mDiffuse = materialDiffuse(in);
-    var mSpecular = materialSpecular(in);
-    var mShininess = shininess(in);
+    var n = fragmentNormal(in);
+    var mAmbient = fragmentAmbient(in);
+    var mDiffuse = fragmentDiffuse(in);
+    var mSpecular = fragmentSpecular(in);
+    var mShininess = fragmentShininess(in);
 
     var viewPosition = camera_model[3].xyz;
-    var viewDirection = normalize(viewPosition - worldPos(in).xyz);
+    var viewDirection = normalize(viewPosition - fragmentWorldPos(in).xyz);
     var halfway = normalize(lightDirection + viewDirection);
 
     color += lAmbient * mAmbient;
@@ -67,7 +65,7 @@ fn calculateDirectional(in: VertexOutput, light: Light) -> vec3<f32> {
 }
 
 fn calculateSpot(in: VertexOutput, light: Light) -> vec3<f32> {
-    var fragmentToLight = light.position.xyz - worldPos(in).xyz;
+    var fragmentToLight = light.position.xyz - fragmentWorldPos(in).xyz;
     var lightDirection = normalize(fragmentToLight);
     var lightDistance = length(fragmentToLight);
 
@@ -86,7 +84,7 @@ fn calculateSpot(in: VertexOutput, light: Light) -> vec3<f32> {
 }
 
 fn calculatePoint(in: VertexOutput, light: Light) -> vec3<f32> {
-    var fragmentToLight = light.position.xyz - worldPos(in).xyz;
+    var fragmentToLight = light.position.xyz - fragmentWorldPos(in).xyz;
     var lightDirection = normalize(fragmentToLight);
     var lightDistance = length(fragmentToLight);
 

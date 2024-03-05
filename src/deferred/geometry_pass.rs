@@ -130,10 +130,10 @@ impl Pipelines {
                 });
 
         let solid_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/deferred/geometry.wgsl",
+            "./shaders/forward/geometry.wgsl",
             vec![
                 ("VERTEX_PN".to_owned(), ShaderDefValue::Bool(true)),
-                ("DEFERRED".to_owned(), ShaderDefValue::Bool(true)),
+                ("GEOMETRY".to_owned(), ShaderDefValue::Bool(true)),
                 (
                     "MATERIAL_PHONG_SOLID".to_owned(),
                     ShaderDefValue::Bool(true),
@@ -142,10 +142,10 @@ impl Pipelines {
         )?);
 
         let textured_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/deferred/geometry.wgsl",
+            "./shaders/forward/geometry.wgsl",
             vec![
                 ("VERTEX_PNUV".to_owned(), ShaderDefValue::Bool(true)),
-                ("DEFERRED".to_owned(), ShaderDefValue::Bool(true)),
+                ("GEOMETRY".to_owned(), ShaderDefValue::Bool(true)),
                 (
                     "MATERIAL_PHONG_TEXTURED".to_owned(),
                     ShaderDefValue::Bool(true),
@@ -154,10 +154,10 @@ impl Pipelines {
         )?);
 
         let textured_normal_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/deferred/geometry.wgsl",
+            "./shaders/forward/geometry.wgsl",
             vec![
                 ("VERTEX_PNTBUV".to_owned(), ShaderDefValue::Bool(true)),
-                ("DEFERRED".to_owned(), ShaderDefValue::Bool(true)),
+                ("GEOMETRY".to_owned(), ShaderDefValue::Bool(true)),
                 (
                     "MATERIAL_PHONG_TEXTURED".to_owned(),
                     ShaderDefValue::Bool(true),

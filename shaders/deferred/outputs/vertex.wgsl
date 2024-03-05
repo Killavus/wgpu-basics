@@ -1,4 +1,4 @@
-#define_import_path gpubasics::deferred::vertex_output
+#define_import_path gpubasics::deferred::outputs::vertex
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,

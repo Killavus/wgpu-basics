@@ -1,5 +1,5 @@
-#import gpubasics::vertex_data::{Vertex};
-#import gpubasics::instances::model::{Instance, model};
+#import gpubasics::forward::buffers::vertex::{Vertex};
+#import gpubasics::forward::buffers::instance::{Instance, model};
 
 #import gpubasics::global::bindings::{camera, projection};
 

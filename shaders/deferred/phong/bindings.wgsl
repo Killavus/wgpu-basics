@@ -1,5 +1,5 @@
-#define_import_path gpubasics::deferred::bindings
-#import gpubasics::phong::light_defs::Lights;
+#define_import_path gpubasics::deferred::phong::bindings
+#import gpubasics::phong::definitions::Lights;
 
 @group(1) @binding(0) var<storage, read> lights: Lights;
 @group(1) @binding(1) var g_sampler: sampler;

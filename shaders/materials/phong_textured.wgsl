@@ -1,7 +1,7 @@
 #define_import_path gpubasics::materials::phong_textured
-#import gpubasics::phong::vertex_output::VertexOutput;
+#import gpubasics::forward::outputs::vertex::VertexOutput;
 
-#ifdef DEFERRED
+#ifdef GEOMETRY
 @group(1) @binding(0) var diffuse_t: texture_2d<f32>;
 @group(1) @binding(1) var specular_t: texture_2d<f32>;
     #ifdef NORMAL_MAP

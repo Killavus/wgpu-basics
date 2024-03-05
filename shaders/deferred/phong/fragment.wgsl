@@ -1,6 +1,6 @@
-#define_import_path gpubasics::deferred::functions
-#import gpubasics::deferred::bindings::{g_sampler, g_normal, g_diffuse, g_specular, g_depth};
-#import gpubasics::deferred::vertex_output::VertexOutput;
+#define_import_path gpubasics::deferred::phong::fragment
+#import gpubasics::deferred::phong::bindings::{g_sampler, g_normal, g_diffuse, g_specular, g_depth};
+#import gpubasics::deferred::outputs::vertex::VertexOutput;
 #import gpubasics::global::bindings::{camera_model, projection_invt};
 
 fn worldPos(in: VertexOutput) -> vec4<f32> {

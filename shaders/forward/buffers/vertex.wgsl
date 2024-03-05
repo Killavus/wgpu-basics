@@ -1,4 +1,4 @@
-#define_import_path gpubasics::vertex_data
+#define_import_path gpubasics::forward::buffers::vertex
 
 #ifdef VERTEX_PN
 struct Vertex {

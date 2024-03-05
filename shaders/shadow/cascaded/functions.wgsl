@@ -1,45 +1,15 @@
-#define_import_path gpubasics::phong::cascaded_shadow_map
-#ifdef DEFERRED
-#import gpubasics::deferred::vertex_output::VertexOutput;
-#import gpubasics::deferred::functions::{normal, worldPos, cameraPos};
-#else
-#import gpubasics::phong::material_bindings::normal;
-#import gpubasics::phong::vertex_output::VertexOutput;
+#define_import_path gpubasics::shadow::cascaded::functions
 
-fn worldPos(in: VertexOutput) -> vec4<f32> {
-    return in.w_pos;
-}
-
-fn cameraPos(in: VertexOutput) -> vec4<f32> {
-    return in.c_pos;
-}
-#endif
-
-struct ShadowMapResult {
-    num_splits: u32,
-    split_depths: array<vec4<f32>, 16>
-};
-
-struct ShadowMapMatrices {
-    cam_split_a: mat4x4<f32>,
-    cam_split_b: mat4x4<f32>,
-    cam_split_c: mat4x4<f32>,
-    proj_split_a: mat4x4<f32>,
-    proj_split_b: mat4x4<f32>,
-    proj_split_c: mat4x4<f32>,
-};
+#import gpubasics::shadow::cascaded::bindings::{smap_matrices, smap, smap_sampler, smap_result};
 
 #ifdef DEFERRED
-@group(2) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
-@group(2) @binding(1) var smap_sampler: sampler;
-@group(2) @binding(2) var smap: texture_depth_2d_array;
-@group(2) @binding(3) var<uniform> smap_result: ShadowMapResult;
+#import gpubasics::deferred::outputs::vertex::{VertexOutput};
+#import gpubasics::deferred::phong::fragment::{worldPos, cameraPos};
 #else
-@group(3) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
-@group(3) @binding(1) var smap_sampler: sampler;
-@group(3) @binding(2) var smap: texture_depth_2d_array;
-@group(3) @binding(3) var<uniform> smap_result: ShadowMapResult;
+#import gpubasics::forward::outputs::vertex::{VertexOutput, worldPos, cameraPos};
 #endif
+
+#import gpubasics::phong::fragment::{fragmentNormal as normal};
 
 fn calculateShadow(in: VertexOutput, lightDir: vec3<f32>) -> f32 {
     var shadow = 0.0;
