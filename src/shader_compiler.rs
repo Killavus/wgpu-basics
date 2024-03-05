@@ -167,6 +167,11 @@ impl CompilationUnit {
         self
     }
 
+    pub fn with_integer_def(mut self, name: impl Into<String>, value: u32) -> Self {
+        self.defs.insert(name.into(), ShaderDefValue::UInt(value));
+        self
+    }
+
     pub fn compile(&self, variant_defs: &[&str]) -> Result<wgpu::naga::Module> {
         let mut final_defs = self.defs.clone();
         for def in variant_defs {
