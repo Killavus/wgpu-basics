@@ -6,7 +6,6 @@ use crate::{
     shader_compiler::ShaderCompiler,
 };
 use anyhow::Result;
-use naga_oil::compose::ShaderDefValue;
 
 pub struct DepthPrepass {
     pn_pipeline: wgpu::RenderPipeline,
@@ -20,20 +19,9 @@ impl DepthPrepass {
         shader_compiler: &mut ShaderCompiler,
         scene_uniform: &SceneUniform,
     ) -> Result<Self> {
-        let shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/cascaded_shadow_map.wgsl",
-            vec![("VERTEX_PN".into(), ShaderDefValue::Bool(true))],
-        )?);
-
-        let pnuv_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/cascaded_shadow_map.wgsl",
-            vec![("VERTEX_PNUV".into(), ShaderDefValue::Bool(true))],
-        )?);
-
-        let pntbuv_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/cascaded_shadow_map.wgsl",
-            vec![("VERTEX_PNTBUV".into(), ShaderDefValue::Bool(true))],
-        )?);
+        let module =
+            shader_compiler.compilation_unit("./shaders/forward/cascaded_shadow_map.wgsl")?;
+        let (shader, pnuv_shader, pntbuv_shader) = gpu.shader_per_vertex_type(&module)?;
 
         let pipelinel = gpu
             .device

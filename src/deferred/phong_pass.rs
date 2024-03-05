@@ -4,7 +4,6 @@ use crate::{
 };
 use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
-use naga_oil::compose::ShaderDefValue;
 
 use super::geometry_pass::GBuffers;
 
@@ -129,13 +128,13 @@ impl PhongPass {
             ..Default::default()
         });
 
-        let fill_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/deferred/phong.wgsl",
-            vec![
-                ("DEFERRED".to_owned(), ShaderDefValue::Bool(true)),
-                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
-            ],
-        )?);
+        let module = shader_compiler
+            .compilation_unit("./shaders/deferred/phong.wgsl")?
+            .with_def("DEFERRED")
+            .with_def("SHADOW_MAP")
+            .compile(&[])?;
+
+        let fill_shader = gpu.shader_from_module(module);
 
         let fill_pipeline_layout =
             gpu.device

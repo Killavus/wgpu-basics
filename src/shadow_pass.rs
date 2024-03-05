@@ -123,20 +123,9 @@ impl DirectionalShadowPass {
             view_formats: &[],
         });
 
-        let shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/cascaded_shadow_map.wgsl",
-            vec![("VERTEX_PN".into(), ShaderDefValue::Bool(true))],
-        )?);
-
-        let pnuv_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/cascaded_shadow_map.wgsl",
-            vec![("VERTEX_PNUV".into(), ShaderDefValue::Bool(true))],
-        )?);
-
-        let pntbuv_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/cascaded_shadow_map.wgsl",
-            vec![("VERTEX_PNTBUV".into(), ShaderDefValue::Bool(true))],
-        )?);
+        let module =
+            shader_compiler.compilation_unit("./shaders/forward/cascaded_shadow_map.wgsl")?;
+        let (shader, pnuv_shader, pntbuv_shader) = gpu.shader_per_vertex_type(&module)?;
 
         let mat4_size: u64 = na::Matrix4::<f32>::SHADER_SIZE.into();
         let offset = mat4_size.max(MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT);

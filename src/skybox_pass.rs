@@ -90,8 +90,11 @@ impl SkyboxPass {
             ],
         });
 
-        let shader = gpu
-            .shader_from_module(shader_compiler.compile("./shaders/skybox/simple.wgsl", vec![])?);
+        let shader = gpu.shader_from_module(
+            shader_compiler
+                .compilation_unit("./shaders/skybox/simple.wgsl")?
+                .compile(&[])?,
+        );
 
         let pipelinel = gpu
             .device

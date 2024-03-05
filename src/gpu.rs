@@ -17,6 +17,8 @@ pub struct Gpu<'window> {
 
 use winit::window::Window;
 
+use crate::shader_compiler::CompilationUnit;
+
 impl<'window> Gpu<'window> {
     pub async fn from_window(window: &'window Window) -> Result<Self> {
         let instance = wgpu::Instance::default();
@@ -134,6 +136,17 @@ impl<'window> Gpu<'window> {
                 label: None,
                 source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
             })
+    }
+
+    pub fn shader_per_vertex_type(
+        &self,
+        module: &CompilationUnit,
+    ) -> Result<(wgpu::ShaderModule, wgpu::ShaderModule, wgpu::ShaderModule)> {
+        Ok((
+            self.shader_from_module(module.compile(&["VERTEX_PN"])?),
+            self.shader_from_module(module.compile(&["VERTEX_PNUV"])?),
+            self.shader_from_module(module.compile(&["VERTEX_PNTBUV"])?),
+        ))
     }
 
     pub fn aspect_ratio(&self) -> f32 {

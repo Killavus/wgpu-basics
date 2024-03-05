@@ -3,13 +3,14 @@ use naga_oil::compose::{
     ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue,
 };
 
-pub struct ShaderCompiler {
+struct ShaderCompilerInner {
     composer: Composer,
 }
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 fn topological_depth_first(
@@ -24,7 +25,7 @@ fn topological_depth_first(
     }
 
     if visited.contains(current) {
-        anyhow::bail!("Cyclic dependency detected");
+        anyhow::bail!("cyclic dependency detected while resolving module graph, dependency in question is {current}");
     }
 
     visited.insert(current.to_owned());
@@ -68,7 +69,10 @@ fn construct_graphs(
     let mut module_graph: HashMap<String, Vec<String>> = HashMap::new();
 
     for shader_file in shader_files {
-        let contents = fs::read_to_string(&shader_file).unwrap();
+        let contents = fs::read_to_string(&shader_file).expect(&format!(
+            "i/o error while reading {}",
+            shader_file.display()
+        ));
 
         if let Some(module_name_pos) = contents.find("#define_import_path") {
             let module_name = contents[module_name_pos + "#define_import_path".len()..]
@@ -103,7 +107,7 @@ fn construct_graphs(
             if let Some(proper_mod_name) = proper_mod_name {
                 *import = proper_mod_name.clone();
             } else {
-                panic!("Module not found: import {} in {}", import, module)
+                panic!("module not found: import {} in {}", import, module)
             }
         }
 
@@ -136,7 +140,75 @@ fn sorted_modules(graph: &HashMap<String, Vec<String>>) -> Result<Vec<String>> {
     Ok(sorted_nodes.into_iter().collect())
 }
 
+#[derive(Clone)]
+pub struct CompilationUnit {
+    contents: String,
+    defs: HashMap<String, ShaderDefValue>,
+    path: PathBuf,
+    compiler: ShaderCompilerInstance,
+}
+
+impl CompilationUnit {
+    pub fn new(instance: ShaderCompilerInstance, path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref().to_owned();
+        let contents = std::fs::read_to_string(&path)
+            .context(format!("Failed to read shader file: {}", path.display()))?;
+
+        Ok(Self {
+            contents,
+            defs: HashMap::new(),
+            path,
+            compiler: instance,
+        })
+    }
+
+    pub fn with_def(mut self, name: impl Into<String>) -> Self {
+        self.defs.insert(name.into(), ShaderDefValue::Bool(true));
+        self
+    }
+
+    pub fn compile(&self, variant_defs: &[&str]) -> Result<wgpu::naga::Module> {
+        let mut final_defs = self.defs.clone();
+        for def in variant_defs {
+            final_defs.insert((*def).into(), ShaderDefValue::Bool(true));
+        }
+
+        self.compiler
+            .lock()
+            .map_err(|_| anyhow::anyhow!("failed to lock shader compiler instance"))?
+            .compile(
+                &self.path.to_str().ok_or(anyhow::anyhow!(
+                    "failed to resolve path out of path buffer {}",
+                    self.path.display()
+                ))?,
+                &self.contents,
+                final_defs,
+            )
+    }
+}
+
+type ShaderCompilerInstance = Arc<Mutex<ShaderCompilerInner>>;
+
+pub struct ShaderCompiler {
+    inner: ShaderCompilerInstance,
+}
+
 impl ShaderCompiler {
+    pub fn new(module_repository: impl AsRef<Path>) -> Result<Self> {
+        let inner = ShaderCompilerInner::new(module_repository)
+            .context("failed to initialize shader compiler")?;
+
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+        })
+    }
+
+    pub fn compilation_unit(&self, path: impl AsRef<Path>) -> Result<CompilationUnit> {
+        CompilationUnit::new(self.inner.clone(), path)
+    }
+}
+
+impl ShaderCompilerInner {
     pub fn new(module_repository: impl AsRef<Path>) -> Result<Self> {
         let mut composer = Composer::default();
 
@@ -147,8 +219,10 @@ impl ShaderCompiler {
             .map(|module| module_to_file[&module].clone());
 
         for file in files {
-            let content = std::fs::read_to_string(&file)
-                .context(format!("Failed to read {}", file.display()))?;
+            let content = std::fs::read_to_string(&file).context(format!(
+                "failed to read shader compilation unit: {}",
+                file.display()
+            ))?;
             composer.add_composable_module(ComposableModuleDescriptor {
                 source: &content,
                 file_path: file.to_str().ok_or(anyhow::anyhow!("Invalid path"))?,
@@ -160,17 +234,16 @@ impl ShaderCompiler {
         Ok(Self { composer })
     }
 
-    pub fn compile(
+    fn compile(
         &mut self,
         path: &str,
-        shader_defs: Vec<(String, ShaderDefValue)>,
+        contents: &str,
+        shader_defs: HashMap<String, ShaderDefValue>,
     ) -> Result<wgpu::naga::Module> {
-        use std::fs;
-
         let module = self
             .composer
             .make_naga_module(NagaModuleDescriptor {
-                source: &fs::read_to_string(path).context(format!("Failed to read {}", path))?,
+                source: &contents,
                 file_path: path,
                 shader_type: naga_oil::compose::ShaderType::Wgsl,
                 shader_defs: HashMap::from_iter(shader_defs),

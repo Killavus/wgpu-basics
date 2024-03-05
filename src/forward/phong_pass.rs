@@ -9,21 +9,18 @@ use crate::{
 };
 use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
-use naga_oil::compose::ShaderDefValue;
 
 pub struct PhongPass {
     lights_bg: wgpu::BindGroup,
-    light_buf: wgpu::Buffer,
+    #[allow(dead_code)]
+    lights_buf: wgpu::Buffer,
     pipelines: PhongPipelines,
 }
 
 struct PhongPipelines {
     solid: wgpu::RenderPipeline,
-    solid_shader: wgpu::ShaderModule,
     textured: wgpu::RenderPipeline,
-    textured_shader: wgpu::ShaderModule,
     textured_normal: wgpu::RenderPipeline,
-    textured_normal_shader: wgpu::ShaderModule,
 }
 
 impl PhongPass {
@@ -50,42 +47,21 @@ impl PhongPass {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        let solid_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/phong.wgsl",
-            vec![
-                ("VERTEX_PN".to_owned(), ShaderDefValue::Bool(true)),
-                (
-                    "MATERIAL_PHONG_SOLID".to_owned(),
-                    ShaderDefValue::Bool(true),
-                ),
-                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
-            ],
-        )?);
+        let module = shader_compiler
+            .compilation_unit("./shaders/forward/phong.wgsl")?
+            .with_def("SHADOW_MAP");
 
-        let textured_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/phong.wgsl",
-            vec![
-                ("VERTEX_PNUV".to_owned(), ShaderDefValue::Bool(true)),
-                (
-                    "MATERIAL_PHONG_TEXTURED".to_owned(),
-                    ShaderDefValue::Bool(true),
-                ),
-                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
-            ],
-        )?);
+        let solid_shader =
+            gpu.shader_from_module(module.compile(&["VERTEX_PN", "MATERIAL_PHONG_SOLID"])?);
 
-        let textured_normal_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/phong.wgsl",
-            vec![
-                ("VERTEX_PNTBUV".to_owned(), ShaderDefValue::Bool(true)),
-                (
-                    "MATERIAL_PHONG_TEXTURED".to_owned(),
-                    ShaderDefValue::Bool(true),
-                ),
-                ("NORMAL_MAP".to_owned(), ShaderDefValue::Bool(true)),
-                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
-            ],
-        )?);
+        let textured_shader =
+            gpu.shader_from_module(module.compile(&["VERTEX_PNUV", "MATERIAL_PHONG_TEXTURED"])?);
+
+        let textured_normal_shader = gpu.shader_from_module(module.compile(&[
+            "VERTEX_PNTBUV",
+            "MATERIAL_PHONG_TEXTURED",
+            "NORMAL_MAP",
+        ])?);
 
         // Lights buffer:
         let lights_bgl = gpu
@@ -259,16 +235,13 @@ impl PhongPass {
 
         let pipelines = PhongPipelines {
             solid: pipeline_solid,
-            solid_shader,
             textured: pipeline_textured,
-            textured_shader,
             textured_normal: pipeline_textured_normal,
-            textured_normal_shader,
         };
 
         Ok(Self {
             lights_bg,
-            light_buf,
+            lights_buf: light_buf,
             pipelines,
         })
     }

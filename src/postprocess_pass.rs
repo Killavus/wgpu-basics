@@ -157,7 +157,7 @@ impl PostprocessPass {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&deferred_texture),
+                    resource: wgpu::BindingResource::TextureView(deferred_texture),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -180,9 +180,8 @@ impl PostprocessPass {
                 push_constant_ranges: &[],
             });
 
-        let shader = gpu.shader_from_module(
-            shader_compiler.compile("./shaders/screenspace/postprocess.wgsl", vec![])?,
-        );
+        let module = shader_compiler.compilation_unit("./shaders/screenspace/postprocess.wgsl")?;
+        let shader = gpu.shader_from_module(module.compile(Default::default())?);
 
         let pipeline = gpu
             .device

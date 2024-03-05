@@ -1,5 +1,4 @@
 use anyhow::Result;
-use naga_oil::compose::ShaderDefValue;
 
 use crate::{
     gpu::Gpu,
@@ -129,42 +128,21 @@ impl Pipelines {
                     push_constant_ranges: &[],
                 });
 
-        let solid_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/geometry.wgsl",
-            vec![
-                ("VERTEX_PN".to_owned(), ShaderDefValue::Bool(true)),
-                ("GEOMETRY".to_owned(), ShaderDefValue::Bool(true)),
-                (
-                    "MATERIAL_PHONG_SOLID".to_owned(),
-                    ShaderDefValue::Bool(true),
-                ),
-            ],
-        )?);
+        let module = shader_compiler
+            .compilation_unit("./shaders/forward/geometry.wgsl")?
+            .with_def("GEOMETRY");
 
-        let textured_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/geometry.wgsl",
-            vec![
-                ("VERTEX_PNUV".to_owned(), ShaderDefValue::Bool(true)),
-                ("GEOMETRY".to_owned(), ShaderDefValue::Bool(true)),
-                (
-                    "MATERIAL_PHONG_TEXTURED".to_owned(),
-                    ShaderDefValue::Bool(true),
-                ),
-            ],
-        )?);
+        let solid_shader =
+            gpu.shader_from_module(module.compile(&["VERTEX_PN", "MATERIAL_PHONG_SOLID"])?);
 
-        let textured_normal_shader = gpu.shader_from_module(shader_compiler.compile(
-            "./shaders/forward/geometry.wgsl",
-            vec![
-                ("VERTEX_PNTBUV".to_owned(), ShaderDefValue::Bool(true)),
-                ("GEOMETRY".to_owned(), ShaderDefValue::Bool(true)),
-                (
-                    "MATERIAL_PHONG_TEXTURED".to_owned(),
-                    ShaderDefValue::Bool(true),
-                ),
-                ("NORMAL_MAP".to_owned(), ShaderDefValue::Bool(true)),
-            ],
-        )?);
+        let textured_shader =
+            gpu.shader_from_module(module.compile(&["VERTEX_PNUV", "MATERIAL_PHONG_TEXTURED"])?);
+
+        let textured_normal_shader = gpu.shader_from_module(module.compile(&[
+            "VERTEX_PNTBUV",
+            "MATERIAL_PHONG_TEXTURED",
+            "NORMAL_MAP",
+        ])?);
 
         let solid_pipeline = gpu
             .device
@@ -293,10 +271,6 @@ impl GeometryPass {
             g_buffers,
             pipelines,
         })
-    }
-
-    pub fn g_buffers(&self) -> &GBuffers {
-        &self.g_buffers
     }
 
     pub fn render(
