@@ -48,6 +48,7 @@ use deferred::GeometryPass;
 struct AppSettings {
     skybox_disabled: bool,
     depth_prepass_enabled: bool,
+    deferred_enabled: bool,
     postprocess: PostprocessSettings,
     debug_normals: bool,
     debug_diffuse: bool,
@@ -76,6 +77,7 @@ impl AppSettings {
         egui::Window::new("Optional passes").show(ctx, |ui| {
             ui.checkbox(&mut self.skybox_disabled, "Disable Skybox");
             ui.checkbox(&mut self.depth_prepass_enabled, "Enable Depth Prepass");
+            ui.checkbox(&mut self.deferred_enabled, "Deferred Mode");
         });
 
         egui::Window::new("Debug").show(ctx, |ui| {
@@ -174,9 +176,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         shadow_pass.out_bind_group_layout(),
     )?;
 
-    let mut postprocess_pass =
-        PostprocessPass::new(&gpu, &mut shader_compiler, settings.postprocess_settings())?;
-
     let skybox_pass = SkyboxPass::new(
         &gpu,
         &mut shader_compiler,
@@ -193,7 +192,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         &mut shader_compiler,
         &lights,
         &scene_uniform,
-        geometry_pass.g_buffers(),
+        shadow_pass.out_bind_group_layout(),
+    )?;
+
+    let mut postprocess_pass = PostprocessPass::new(
+        &gpu,
+        &mut shader_compiler,
+        &fill_pass.output_tex_view(),
+        settings.postprocess_settings(),
     )?;
 
     let window: &Window = &window;
@@ -305,19 +311,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                             let time_ms = (time - last_time).as_secs_f32();
                             let ui_update = ui.update(window, |ctx| settings.render(ctx, time_ms));
 
-                            let g_bufs = geometry_pass.render(
-                                gpu,
-                                &material_atlas,
-                                &scene_uniform,
-                                &gpu_scene,
-                            );
-
-                            fill_pass.render(gpu, &scene_uniform);
-
-                            if settings.depth_prepass_enabled {
-                                depth_prepass.render(gpu, &scene_uniform, &gpu_scene);
-                            }
-
                             let spass_bg = shadow_pass
                                 .render(
                                     gpu,
@@ -334,6 +327,19 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     &gpu_scene,
                                 )
                                 .unwrap();
+
+                            let g_bufs = geometry_pass.render(
+                                gpu,
+                                &material_atlas,
+                                &scene_uniform,
+                                &gpu_scene,
+                            );
+
+                            fill_pass.render(gpu, g_bufs, &scene_uniform, spass_bg);
+
+                            if settings.depth_prepass_enabled {
+                                depth_prepass.render(gpu, &scene_uniform, &gpu_scene);
+                            }
 
                             let mut frame = phong_pass.render(
                                 gpu,
@@ -352,6 +358,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 gpu,
                                 settings.postprocess_settings(),
                                 frame,
+                                settings.deferred_enabled,
                             );
 
                             if settings.debug_diffuse

@@ -4,13 +4,16 @@ use crate::{
 };
 use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
+use naga_oil::compose::ShaderDefValue;
 
 use super::geometry_pass::GBuffers;
 
 pub struct FillPass {
     pipeline: wgpu::RenderPipeline,
-    fill_bg: wgpu::BindGroup,
+    light_buf: wgpu::Buffer,
+    g_sampler: wgpu::Sampler,
     output_tex: wgpu::Texture,
+    fill_bgl: wgpu::BindGroupLayout,
 }
 
 impl FillPass {
@@ -19,7 +22,7 @@ impl FillPass {
         shader_compiler: &mut ShaderCompiler,
         lights: &PhongLightScene,
         scene_uniform: &SceneUniform,
-        g_buffers: &GBuffers,
+        shadow_bgl: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
         let fill_bgl = gpu
             .device
@@ -115,12 +118,6 @@ impl FillPass {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        let (g_normal, g_diffuse, g_specular) = (
-            g_buffers.g_normal.create_view(&Default::default()),
-            g_buffers.g_diffuse.create_view(&Default::default()),
-            g_buffers.g_specular.create_view(&Default::default()),
-        );
-
         let g_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -132,45 +129,19 @@ impl FillPass {
             ..Default::default()
         });
 
-        let fill_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &fill_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: light_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&g_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&g_normal),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&g_diffuse),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&g_specular),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&gpu.depth_texture_view()),
-                },
+        let fill_shader = gpu.shader_from_module(shader_compiler.compile(
+            "./shaders/deferred/phong.wgsl",
+            vec![
+                ("DEFERRED".to_owned(), ShaderDefValue::Bool(true)),
+                ("SHADOW_MAP".to_owned(), ShaderDefValue::Bool(true)),
             ],
-        });
-
-        let fill_shader = gpu
-            .shader_from_module(shader_compiler.compile("./shaders/deferred/phong.wgsl", vec![])?);
+        )?);
 
         let fill_pipeline_layout =
             gpu.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[scene_uniform.layout(), &fill_bgl],
+                    bind_group_layouts: &[scene_uniform.layout(), &fill_bgl, shadow_bgl],
                     push_constant_ranges: &[],
                 });
 
@@ -203,16 +174,65 @@ impl FillPass {
             });
 
         Ok(Self {
-            fill_bg,
+            fill_bgl,
+            light_buf,
+            g_sampler,
             pipeline: fill_pipeline,
             output_tex: output,
         })
     }
 
-    pub fn render(&self, gpu: &Gpu, scene_uniform: &SceneUniform) {
+    pub fn output_tex_view(&self) -> wgpu::TextureView {
+        self.output_tex.create_view(&Default::default())
+    }
+
+    pub fn render(
+        &self,
+        gpu: &Gpu,
+        g_buffers: &GBuffers,
+        scene_uniform: &SceneUniform,
+        spass_bg: &wgpu::BindGroup,
+    ) {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+        let (g_normal, g_diffuse, g_specular) = (
+            g_buffers.g_normal.create_view(&Default::default()),
+            g_buffers.g_diffuse.create_view(&Default::default()),
+            g_buffers.g_specular.create_view(&Default::default()),
+        );
+
+        let fill_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.fill_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.light_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.g_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&g_normal),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&g_diffuse),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&g_specular),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(&gpu.depth_texture_view()),
+                },
+            ],
+        });
 
         let output_tv = self.output_tex.create_view(&Default::default());
 
@@ -234,7 +254,9 @@ impl FillPass {
 
             rpass.set_pipeline(&self.pipeline);
             rpass.set_bind_group(0, scene_uniform.bind_group(), &[]);
-            rpass.set_bind_group(1, &self.fill_bg, &[]);
+            rpass.set_bind_group(1, &fill_bg, &[]);
+            rpass.set_bind_group(2, spass_bg, &[]);
+
             rpass.draw(0..4, 0..1);
         }
 

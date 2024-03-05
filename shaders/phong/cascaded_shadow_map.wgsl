@@ -1,7 +1,19 @@
 #define_import_path gpubasics::phong::cascaded_shadow_map
+#ifdef DEFERRED
+#import gpubasics::deferred::vertex_output::VertexOutput;
+#import gpubasics::deferred::functions::{normal, worldPos, cameraPos};
+#else
+#import gpubasics::phong::material_bindings::normal;
 #import gpubasics::phong::vertex_output::VertexOutput;
 
-#import gpubasics::phong::material_bindings::normal;
+fn worldPos(in: VertexOutput) -> vec4<f32> {
+    return in.w_pos;
+}
+
+fn cameraPos(in: VertexOutput) -> vec4<f32> {
+    return in.c_pos;
+}
+#endif
 
 struct ShadowMapResult {
     num_splits: u32,
@@ -17,10 +29,17 @@ struct ShadowMapMatrices {
     proj_split_c: mat4x4<f32>,
 };
 
+#ifdef DEFERRED
+@group(2) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
+@group(2) @binding(1) var smap_sampler: sampler;
+@group(2) @binding(2) var smap: texture_depth_2d_array;
+@group(2) @binding(3) var<uniform> smap_result: ShadowMapResult;
+#else
 @group(3) @binding(0) var<uniform> smap_matrices: ShadowMapMatrices;
 @group(3) @binding(1) var smap_sampler: sampler;
 @group(3) @binding(2) var smap: texture_depth_2d_array;
 @group(3) @binding(3) var<uniform> smap_result: ShadowMapResult;
+#endif
 
 fn calculateShadow(in: VertexOutput, lightDir: vec3<f32>) -> f32 {
     var shadow = 0.0;
@@ -29,14 +48,14 @@ fn calculateShadow(in: VertexOutput, lightDir: vec3<f32>) -> f32 {
     var light_proj_mats = array<mat4x4<f32>, 3>(smap_matrices.proj_split_a, smap_matrices.proj_split_b, smap_matrices.proj_split_c);
 
     for (var i = 0; i < i32(smap_result.num_splits); i += 1) {
-        if abs(in.c_pos.z) < smap_result.split_depths[i].x {
+        if abs(cameraPos(in).z) < smap_result.split_depths[i].x {
             split = i;
                 break;
         }
     }
 
     if split > -1 {
-        var l_pos = light_proj_mats[split] * light_cam_mats[split] * in.w_pos;
+        var l_pos = light_proj_mats[split] * light_cam_mats[split] * worldPos(in);
         var lightPos = (l_pos.xyz / l_pos.w);
         var lightDepth = lightPos.z;
 

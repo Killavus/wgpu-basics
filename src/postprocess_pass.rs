@@ -4,7 +4,8 @@ use encase::{ShaderSize, ShaderType, UniformBuffer};
 use nalgebra as na;
 
 pub struct PostprocessPass {
-    bg: wgpu::BindGroup,
+    forward_bg: wgpu::BindGroup,
+    deferred_bg: wgpu::BindGroup,
     bgl: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
     settings_buf: wgpu::Buffer,
@@ -53,6 +54,7 @@ impl PostprocessPass {
     pub fn new(
         gpu: &Gpu,
         shader_compiler: &mut ShaderCompiler,
+        deferred_texture: &wgpu::TextureView,
         settings: &PostprocessSettings,
     ) -> Result<Self> {
         let tex_size = gpu.viewport_size();
@@ -126,7 +128,7 @@ impl PostprocessPass {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let forward_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bgl,
             entries: &[
@@ -135,6 +137,27 @@ impl PostprocessPass {
                     resource: wgpu::BindingResource::TextureView(
                         &texture.create_view(&wgpu::TextureViewDescriptor::default()),
                     ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(
+                        settings_buf.as_entire_buffer_binding(),
+                    ),
+                },
+            ],
+        });
+
+        let deferred_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&deferred_texture),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -188,7 +211,8 @@ impl PostprocessPass {
         Ok(Self {
             sampler,
             bgl,
-            bg,
+            forward_bg,
+            deferred_bg,
             pipeline,
             settings_buf,
             texture,
@@ -237,7 +261,7 @@ impl PostprocessPass {
         });
 
         self.texture = texture;
-        self.bg = bg;
+        self.forward_bg = bg;
     }
 
     pub fn render(
@@ -245,6 +269,7 @@ impl PostprocessPass {
         gpu: &Gpu,
         settings: &PostprocessSettings,
         frame: wgpu::SurfaceTexture,
+        deferred: bool,
     ) -> wgpu::SurfaceTexture {
         let mut encoder = gpu
             .device
@@ -258,11 +283,13 @@ impl PostprocessPass {
         gpu.queue
             .write_buffer(&self.settings_buf, 0, contents.into_inner().as_slice());
 
-        encoder.copy_texture_to_texture(
-            frame.texture.as_image_copy(),
-            self.texture.as_image_copy(),
-            gpu.viewport_size(),
-        );
+        if !deferred {
+            encoder.copy_texture_to_texture(
+                frame.texture.as_image_copy(),
+                self.texture.as_image_copy(),
+                gpu.viewport_size(),
+            );
+        }
 
         let frame_view = frame
             .texture
@@ -285,7 +312,12 @@ impl PostprocessPass {
             });
 
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.bg, &[]);
+            if deferred {
+                rpass.set_bind_group(0, &self.deferred_bg, &[]);
+            } else {
+                rpass.set_bind_group(0, &self.forward_bg, &[]);
+            }
+
             rpass.draw(0..4, 0..1);
         }
 
