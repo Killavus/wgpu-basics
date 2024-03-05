@@ -2,13 +2,13 @@ use anyhow::Result;
 
 use crate::gpu::Gpu;
 
-pub struct Ui {
+pub struct UiPass {
     ctx: egui::Context,
     state: egui_winit::State,
     renderer: egui_wgpu::Renderer,
 }
 
-impl Ui {
+impl UiPass {
     pub fn new(window: &winit::window::Window, gpu: &Gpu) -> Result<Self> {
         let ctx = egui::Context::default();
         let viewport_id = ctx.viewport_id();

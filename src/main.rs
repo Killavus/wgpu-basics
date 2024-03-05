@@ -7,6 +7,7 @@ use scene_uniform::SceneUniform;
 use shader_compiler::ShaderCompiler;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
+use ui_pass::UiPass;
 use winit::{
     dpi::{LogicalSize, PhysicalPosition},
     event::*,
@@ -32,7 +33,7 @@ mod shadow_pass;
 mod shapes;
 mod skybox_pass;
 mod test_scenes;
-mod ui;
+mod ui_pass;
 
 use forward::DepthPrepass;
 
@@ -98,7 +99,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, _) =
         test_scenes::teapot_scene(&gpu)?;
 
-    let mut ui = ui::Ui::new(&window, &gpu)?;
+    let mut ui_pass: UiPass = UiPass::new(&window, &gpu)?;
     let mut settings: AppSettings = AppSettings::default();
 
     let gpu_scene = GpuScene::new(&gpu, scene)?;
@@ -211,7 +212,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let time = std::time::Instant::now();
     let mut last_time = time.elapsed();
-    let ui = &mut ui;
+    let ui = &mut ui_pass;
 
     let dbg_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
         label: None,
