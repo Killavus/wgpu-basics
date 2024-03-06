@@ -43,7 +43,7 @@ const TILT_DELTA: f32 = 1.0;
 use gpu::Gpu;
 
 use crate::phong_light::PhongLight;
-use deferred::GeometryPass;
+use deferred::{GeometryPass, SsaoPass};
 
 #[derive(Default)]
 struct AppSettings {
@@ -187,6 +187,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let geometry_pass =
         GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
+
+    let ssao_pass: SsaoPass = SsaoPass::new(&gpu, &mut shader_compiler, &scene_uniform)?;
 
     let deferred_phong_pass = deferred::PhongPass::new(
         &gpu,
@@ -336,6 +338,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 &gpu_scene,
                             );
 
+                            ssao_pass.render(gpu, g_bufs, &scene_uniform);
                             deferred_phong_pass.render(gpu, g_bufs, &scene_uniform, spass_bg);
 
                             if settings.depth_prepass_enabled {
