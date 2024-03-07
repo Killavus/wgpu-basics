@@ -8,13 +8,13 @@ fn depth(uv: vec2<f32>) -> f32 {
     return textureSample(g_depth, g_sampler, uv);
 }
 
-fn worldPos(in: VertexOutput) -> vec4<f32> {
+fn cameraPos(in: VertexOutput) -> vec4<f32> {
     var depth = textureSample(g_depth, g_sampler, in.uv);
     var ndc = vec4<f32>(in.clip.x, in.clip.y, depth, 1.0);
     var clip = projection_invt * ndc;
     clip /= clip.w;
 
-    return camera_model * clip;
+    return clip;
 }
 
 fn normal(in: VertexOutput) -> vec3<f32> {

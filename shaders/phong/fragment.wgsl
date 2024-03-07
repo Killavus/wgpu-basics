@@ -2,7 +2,7 @@
 
 #ifdef DEFERRED
 #import gpubasics::deferred::outputs::vertex::VertexOutput;
-#import gpubasics::deferred::phong::fragment::{normal, worldPos, cameraPos, diffuse as materialDiffuse, diffuse as materialAmbient, specular as materialSpecular, shininess};
+#import gpubasics::deferred::phong::fragment::{normal, worldPos, cameraPos, diffuse as materialDiffuse, diffuse as materialAmbient, specular as materialSpecular, shininess, ambientOcclusion};
 #else
 #import gpubasics::forward::outputs::vertex::{worldPos, cameraPos, VertexOutput};
 #ifdef MATERIAL_PHONG_SOLID
@@ -40,4 +40,12 @@ fn fragmentAmbient(in: VertexOutput) -> vec3<f32> {
 
 fn fragmentShininess(in: VertexOutput) -> f32 {
     return shininess(in);
+}
+
+fn fragmentOcclusion(in: VertexOutput) -> f32 {
+    #ifdef DEFERRED
+    return ambientOcclusion(in);
+    #else
+    return 1.0;
+    #endif
 }

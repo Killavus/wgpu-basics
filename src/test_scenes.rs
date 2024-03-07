@@ -202,9 +202,10 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
 
     scene.add_object_with_material(
         cube_uv_nmap,
-        Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
-            1.0, 0.5, 1.0,
-        ))),
+        Instance::new_model(
+            na::Matrix4::new_translation(&na::Vector3::new(1.0, 0.5, 1.0))
+                * na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(1.0, 2.0, 1.0)),
+        ),
         brickwall_nmap,
     );
 
@@ -258,7 +259,7 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
     scene.add_object(
         maya,
         Instance::new_model(na::Matrix4::new_translation(&na::Vector3::new(
-            1.0, 0.0, 3.0,
+            1.0, 0.0, 1.7,
         ))),
     );
 

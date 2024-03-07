@@ -17,6 +17,7 @@ use winit::{
 };
 
 mod camera;
+mod compute;
 mod deferred;
 mod forward;
 mod gpu;
@@ -338,8 +339,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 &gpu_scene,
                             );
 
-                            ssao_pass.render(gpu, g_bufs, &scene_uniform);
-                            deferred_phong_pass.render(gpu, g_bufs, &scene_uniform, spass_bg);
+                            let ssao_tex = ssao_pass.render(gpu, g_bufs, &scene_uniform);
+                            deferred_phong_pass.render(
+                                gpu,
+                                g_bufs,
+                                &scene_uniform,
+                                spass_bg,
+                                &ssao_tex,
+                            );
 
                             if settings.depth_prepass_enabled {
                                 depth_prepass.render(gpu, &scene_uniform, &gpu_scene);

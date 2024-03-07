@@ -88,6 +88,17 @@ impl PhongPass {
                         },
                         count: None,
                     },
+                    // Ssao tex
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -191,6 +202,7 @@ impl PhongPass {
         g_buffers: &GBuffers,
         scene_uniform: &SceneUniform,
         spass_bg: &wgpu::BindGroup,
+        ssao_tex: &wgpu::TextureView,
     ) {
         let mut encoder = gpu
             .device
@@ -229,6 +241,10 @@ impl PhongPass {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::TextureView(&gpu.depth_texture_view()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(ssao_tex),
                 },
             ],
         });

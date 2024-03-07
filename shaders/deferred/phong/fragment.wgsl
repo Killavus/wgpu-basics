@@ -1,5 +1,5 @@
 #define_import_path gpubasics::deferred::phong::fragment
-#import gpubasics::deferred::phong::bindings::{g_sampler, g_normal, g_diffuse, g_specular, g_depth};
+#import gpubasics::deferred::phong::bindings::{g_sampler, g_normal, g_diffuse, g_specular, g_depth, ssao_tex};
 #import gpubasics::deferred::outputs::vertex::VertexOutput;
 #import gpubasics::global::bindings::{camera_model, projection_invt};
 
@@ -39,4 +39,8 @@ fn specular(in: VertexOutput) -> vec3<f32> {
 
 fn shininess(in: VertexOutput) -> f32 {
     return textureSample(g_specular, g_sampler, in.uv).a * 256.0;
+}
+
+fn ambientOcclusion(in: VertexOutput) -> f32 {
+    return textureSample(ssao_tex, g_sampler, in.uv).r;
 }

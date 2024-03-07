@@ -7,3 +7,4 @@
 @group(1) @binding(3) var g_diffuse: texture_2d<f32>;
 @group(1) @binding(4) var g_specular: texture_2d<f32>;
 @group(1) @binding(5) var g_depth: texture_depth_2d;
+@group(1) @binding(6) var ssao_tex: texture_2d<f32>;

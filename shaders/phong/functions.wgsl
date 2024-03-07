@@ -3,7 +3,7 @@
 #import gpubasics::global::bindings::camera_model;
 #import gpubasics::phong::definitions::Light;
 
-#import gpubasics::phong::fragment::{fragmentCameraPos, fragmentWorldPos, fragmentNormal, fragmentAmbient, fragmentDiffuse, fragmentSpecular, fragmentShininess};
+#import gpubasics::phong::fragment::{fragmentCameraPos, fragmentWorldPos, fragmentNormal, fragmentAmbient, fragmentDiffuse, fragmentSpecular, fragmentShininess, fragmentOcclusion};
 
 #ifdef DEFERRED
 #import gpubasics::deferred::phong::bindings::lights;
@@ -41,7 +41,7 @@ fn phongLighting(in: VertexOutput, lightDirection: vec3<f32>, attenuation: f32, 
     var viewDirection = normalize(viewPosition - fragmentWorldPos(in).xyz);
     var halfway = normalize(lightDirection + viewDirection);
 
-    color += lAmbient * mAmbient;
+    color += lAmbient * (mAmbient * fragmentOcclusion(in));
     var diffuseCoeff = max(dot(n, lightDirection), 0.0);
     color += notShadowed * mDiffuse * attenuation * diffuseCoeff * lDiffuse;
 

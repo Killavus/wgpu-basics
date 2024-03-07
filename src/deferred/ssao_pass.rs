@@ -1,6 +1,7 @@
 use anyhow::Result;
 use encase::{ShaderType, UniformBuffer};
 use nalgebra as na;
+use rand::distributions::Uniform;
 
 use crate::{gpu::Gpu, scene_uniform::SceneUniform, shader_compiler::ShaderCompiler};
 
@@ -21,7 +22,7 @@ const NOISE_TEX_SIZE: usize = 16;
 const NOISE_TEX_DIM: usize = 4;
 
 fn generate_samples() -> [na::Vector3<f32>; NUM_SAMPLES] {
-    use rand::Rng;
+    use rand::distributions::Distribution;
     let mut rng = rand::thread_rng();
 
     let mut result = [na::Vector3::zeros(); NUM_SAMPLES];
@@ -31,11 +32,14 @@ fn generate_samples() -> [na::Vector3<f32>; NUM_SAMPLES] {
         let factor = (i + 1) as f32 / NUM_SAMPLES as f32;
         let scale = 0.1 + factor * (1.0 - 0.1);
 
+        let distribution = Uniform::new(-1.0, 1.0);
+
         *sample = na::Vector3::new(
-            rng.gen_range(-1.0..1.0),
-            rng.gen_range(-1.0..1.0),
-            rng.gen_range(0.0..1.0),
+            distribution.sample(&mut rng),
+            distribution.sample(&mut rng),
+            distribution.sample(&mut rng) * 0.5 + 0.5,
         );
+        *sample *= distribution.sample(&mut rng) * 0.5 + 0.5;
         *sample *= scale;
     }
 
@@ -43,13 +47,20 @@ fn generate_samples() -> [na::Vector3<f32>; NUM_SAMPLES] {
 }
 
 fn generate_noise() -> [na::Vector4<f32>; NOISE_TEX_SIZE] {
-    use rand::Rng;
+    use rand::distributions::Distribution;
     let mut rng = rand::thread_rng();
 
     let mut result = [na::Vector4::zeros(); NOISE_TEX_SIZE];
+    let distribution = Uniform::new(-1.0, 1.0);
 
     for sample in result.iter_mut() {
-        *sample = na::Vector4::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0), 0.0, 0.0);
+        *sample = na::Vector4::new(
+            distribution.sample(&mut rng),
+            distribution.sample(&mut rng),
+            0.0,
+            0.0,
+        )
+        .normalize();
     }
 
     result
@@ -309,7 +320,7 @@ impl SsaoPass {
                     view: &output_tv,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
