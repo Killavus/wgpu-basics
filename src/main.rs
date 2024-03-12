@@ -1,4 +1,5 @@
 use anyhow::Result;
+use compute::BlurPass;
 use image::EncodableLayout;
 
 use postprocess_pass::{PostprocessPass, PostprocessSettings};
@@ -189,7 +190,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let geometry_pass =
         GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
 
-    let ssao_pass: SsaoPass = SsaoPass::new(&gpu, &mut shader_compiler, &scene_uniform)?;
+    let ssao_pass: SsaoPass = SsaoPass::new(&gpu, &shader_compiler, &scene_uniform)?;
 
     let deferred_phong_pass = deferred::PhongPass::new(
         &gpu,

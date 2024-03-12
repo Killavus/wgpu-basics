@@ -1,4 +1,4 @@
-use crate::{gpu::Gpu, shader_compiler::ShaderCompiler};
+use crate::{compute::BlurPass, gpu::Gpu, shader_compiler::ShaderCompiler};
 use anyhow::Result;
 use encase::{ShaderSize, ShaderType, UniformBuffer};
 use nalgebra as na;
@@ -11,6 +11,7 @@ pub struct PostprocessPass {
     settings_buf: wgpu::Buffer,
     sampler: wgpu::Sampler,
     texture: wgpu::Texture,
+    blur_pass: BlurPass,
 }
 
 #[derive(ShaderType, PartialEq)]
@@ -70,39 +71,41 @@ impl PostprocessPass {
             view_formats: &[],
         });
 
-        let bgl = gpu
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
+        let blur_pass = BlurPass::new(gpu, shader_compiler, tex_size, gpu.swapchain_format())?;
+
+        let bgl: wgpu::BindGroupLayout =
+            gpu.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                            count: None,
                         },
-                        count: None,
-                    },
-                ],
-            });
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
+                });
 
         let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
@@ -214,6 +217,7 @@ impl PostprocessPass {
             deferred_bg,
             pipeline,
             settings_buf,
+            blur_pass,
             texture,
         })
     }
@@ -319,8 +323,8 @@ impl PostprocessPass {
 
             rpass.draw(0..4, 0..1);
         }
-
         gpu.queue.submit(Some(encoder.finish()));
+
         frame
     }
 }

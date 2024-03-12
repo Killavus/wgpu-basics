@@ -1,4 +1,15 @@
+#ifdef R8UNORM
 @group(0) @binding(0) var output: texture_storage_2d<r8unorm, write>;
+#endif
+
+#ifdef RGBA8UNORM
+@group(0) @binding(0) var output: texture_storage_2d<rgba8unorm, write>;
+#endif
+
+#ifdef BGRA8UNORM
+@group(0) @binding(0) var output: texture_storage_2d<bgra8unorm, write>;
+#endif
+
 @group(0) @binding(1) var input: texture_2d<f32>;
 @group(0) @binding(2) var tex_sampler: sampler;
 struct Flip {
@@ -25,7 +36,7 @@ fn blur(@builtin(workgroup_id) WorkGroupID: vec3u, @builtin(local_invocation_id)
         for (var c = 0; c < 4; c += 1) {
             var coord = baseIndex + vec2(u32(c), u32(r));
             if flip.value == 1u {
-                coord = coord.xy;
+                coord = coord.yx;
             }
 
             shared_mem[r][4 * LocalInvocationID.x + u32(c)] = textureSampleLevel(input, tex_sampler, (vec2f(coord) + vec2f(0.25, 0.25)) / vec2f(imageDim), 0.0).rgb;
@@ -38,7 +49,7 @@ fn blur(@builtin(workgroup_id) WorkGroupID: vec3u, @builtin(local_invocation_id)
         for (var c = 0; c < 4; c += 1) {
             var writeIndex = baseIndex + vec2(u32(c), u32(r));
             if flip.value == 1u {
-                writeIndex = writeIndex.xy;
+                writeIndex = writeIndex.yx;
             }
 
             let center = i32(4 * LocalInvocationID.x + u32(c));

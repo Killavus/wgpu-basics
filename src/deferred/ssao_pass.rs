@@ -345,6 +345,9 @@ impl SsaoPass {
         }
 
         gpu.queue.submit(Some(encoder.finish()));
-        self.blur_pass.perform(gpu, &self.output_tex, 4, 16)
+
+        self.blur_pass
+            .perform(gpu, &self.output_tex, 8, 4)
+            .create_view(&Default::default())
     }
 }

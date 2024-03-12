@@ -56,7 +56,9 @@ impl<'window> Gpu<'window> {
             .expect("failed to find suitable surface for initialization");
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             format: swapchain_format,
             width: window.inner_size().width,
             height: window.inner_size().height,
