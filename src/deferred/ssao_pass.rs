@@ -3,7 +3,9 @@ use encase::{ShaderType, UniformBuffer};
 use nalgebra as na;
 use rand::distributions::Uniform;
 
-use crate::{gpu::Gpu, scene_uniform::SceneUniform, shader_compiler::ShaderCompiler};
+use crate::{
+    compute::BlurPass, gpu::Gpu, scene_uniform::SceneUniform, shader_compiler::ShaderCompiler,
+};
 
 use super::geometry_pass::GBuffers;
 
@@ -15,6 +17,7 @@ pub struct SsaoPass {
     noise_sampler: wgpu::Sampler,
     noise_tex: wgpu::Texture,
     ssao_pipeline: wgpu::RenderPipeline,
+    blur_pass: BlurPass,
 }
 
 const NUM_SAMPLES: usize = 64;
@@ -144,7 +147,9 @@ impl SsaoPass {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -251,6 +256,9 @@ impl SsaoPass {
                 multiview: None,
             });
 
+        let blur_pass =
+            BlurPass::new(gpu, shader_compiler, output_tex.size(), output_tex.format())?;
+
         Ok(Self {
             ssao_bgl,
             output_tex,
@@ -259,6 +267,7 @@ impl SsaoPass {
             noise_sampler,
             noise_tex,
             ssao_pipeline: pipeline,
+            blur_pass,
         })
     }
 
@@ -336,6 +345,6 @@ impl SsaoPass {
         }
 
         gpu.queue.submit(Some(encoder.finish()));
-        output_tv
+        self.blur_pass.perform(gpu, &self.output_tex, 4, 16)
     }
 }
