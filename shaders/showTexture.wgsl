@@ -1,4 +1,8 @@
+#ifdef DEPTH_TEXTURE
+@group(0) @binding(0) var texture: texture_depth_2d;
+#else
 @group(0) @binding(0) var texture: texture_2d<f32>;
+#endif
 @group(0) @binding(1) var t_sampler: sampler;
 
 struct VertexOutput {
@@ -32,5 +36,10 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    #ifdef DEPTH_TEXTURE
+    var depth = textureSample(texture, t_sampler, in.tex_coords);
+    return vec4(depth, depth, depth, 1.0);
+    #else
     return textureSample(texture, t_sampler, in.tex_coords);
+    #endif
 }

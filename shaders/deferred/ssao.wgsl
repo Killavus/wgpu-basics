@@ -38,8 +38,7 @@ fn fs_main(in: VertexOutput) -> @location(0) f32 {
         sampleOut.uv = clipPos.xy * vec2(0.5, -0.5) + 0.5;
 
         var sampleDepth = worldPos(sampleOut).z;
-        var rangeCheck = smoothstep(0.0, 1.0, radius / abs(sample.z - sampleDepth));
-
+        var rangeCheck = smoothstep(0.0, 1.0, radius / abs(pos.z - sampleDepth));
 
         if sampleDepth >= sample.z + 0.025 {
             occlusion += 1.0 * rangeCheck;
