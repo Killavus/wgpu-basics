@@ -1,10 +1,10 @@
 use anyhow::Result;
-use egui::ComboBox;
 use image::EncodableLayout;
 
-use postprocess_pass::{PostprocessPass, PostprocessSettings};
+use postprocess_pass::PostprocessPass;
 use scene::GpuScene;
 use scene_uniform::SceneUniform;
+use settings::AppSettings;
 use shader_compiler::ShaderCompiler;
 use shadow_pass::DirectionalShadowPass;
 use skybox_pass::SkyboxPass;
@@ -31,6 +31,7 @@ mod postprocess_pass;
 mod projection;
 mod scene;
 mod scene_uniform;
+mod settings;
 mod shader_compiler;
 mod shadow_pass;
 mod shapes;
@@ -45,198 +46,8 @@ const TILT_DELTA: f32 = 1.0;
 
 use gpu::Gpu;
 
-use crate::phong_light::PhongLight;
+use crate::{phong_light::PhongLight, settings::PipelineType};
 use deferred::{GeometryPass, SsaoPass};
-
-#[derive(Debug, Default, PartialEq, Eq)]
-enum PipelineType {
-    Forward,
-    #[default]
-    Deferred,
-}
-
-#[derive(Default)]
-struct AppSettings {
-    skybox_disabled: bool,
-    depth_prepass_enabled: bool,
-    deferred_enabled: bool,
-    postprocess: PostprocessSettings,
-    pipeline_type: PipelineType,
-    postprocess_disabled: bool,
-    ssao: SsaoSettings,
-    deferred_dbg: DeferredDebugState,
-}
-
-#[derive(Default, PartialEq, Eq)]
-enum DeferredDebug {
-    #[default]
-    Normals,
-    Diffuse,
-    Specular,
-    Depth,
-    AmbientOcclusion,
-}
-
-#[derive(Default)]
-struct DeferredDebugState {
-    enabled: bool,
-    debug_type: DeferredDebug,
-}
-
-struct SsaoSettings {
-    enabled: bool,
-    num_samples: u32,
-    radius: f32,
-    blur_filter_size: u32,
-    blur_iterations: u32,
-}
-
-impl Default for SsaoSettings {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            num_samples: 64,
-            radius: 0.5,
-            blur_filter_size: 4,
-            blur_iterations: 1,
-        }
-    }
-}
-
-impl AppSettings {
-    pub fn render(&mut self, ctx: &egui::Context, time_delta: f32) {
-        egui::Window::new("General")
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.label("Pipeline Type");
-                ComboBox::from_label("")
-                    .selected_text(match self.pipeline_type {
-                        PipelineType::Forward => "Forward",
-                        PipelineType::Deferred => "Deferred",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.pipeline_type,
-                            PipelineType::Forward,
-                            "Forward",
-                        );
-                        ui.selectable_value(
-                            &mut self.pipeline_type,
-                            PipelineType::Deferred,
-                            "Deferred",
-                        );
-                    });
-
-                ui.checkbox(&mut self.skybox_disabled, "Disable Skybox");
-                ui.checkbox(&mut self.postprocess_disabled, "Disable Postprocess");
-            });
-
-        if self.pipeline_type == PipelineType::Deferred {
-            egui::Window::new("SSAO")
-                .default_open(false)
-                .show(ctx, |ui| {
-                    ui.checkbox(&mut self.ssao.enabled, "Enable");
-                    ui.label("Kernel Size");
-                    ui.add(
-                        egui::DragValue::new(&mut self.ssao.num_samples)
-                            .speed(1)
-                            .clamp_range(4..=256),
-                    );
-                    ui.label("Radius");
-                    ui.add(
-                        egui::DragValue::new(&mut self.ssao.radius)
-                            .speed(0.01)
-                            .clamp_range(0.0..=100.0),
-                    );
-                    ui.label("Blur Filter Size");
-                    ui.add(
-                        egui::DragValue::new(&mut self.ssao.blur_filter_size)
-                            .speed(1)
-                            .clamp_range(2..=128),
-                    );
-                    ui.label("Blur Iterations");
-                    ui.add(
-                        egui::DragValue::new(&mut self.ssao.blur_iterations)
-                            .speed(1)
-                            .clamp_range(1..=100),
-                    );
-                });
-
-            egui::Window::new("Debug")
-                .default_open(false)
-                .show(ctx, |ui| {
-                    ui.checkbox(&mut self.deferred_dbg.enabled, "Enable");
-                    ui.label("Debug Type");
-                    ComboBox::from_label("")
-                        .selected_text(match self.deferred_dbg.debug_type {
-                            DeferredDebug::Normals => "Normals",
-                            DeferredDebug::Diffuse => "Diffuse",
-                            DeferredDebug::Specular => "Specular",
-                            DeferredDebug::Depth => "Depth",
-                            DeferredDebug::AmbientOcclusion => "Ambient Occlusion",
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.deferred_dbg.debug_type,
-                                DeferredDebug::Normals,
-                                "Normals",
-                            );
-                            ui.selectable_value(
-                                &mut self.deferred_dbg.debug_type,
-                                DeferredDebug::Diffuse,
-                                "Diffuse",
-                            );
-                            ui.selectable_value(
-                                &mut self.deferred_dbg.debug_type,
-                                DeferredDebug::Specular,
-                                "Specular",
-                            );
-                            ui.selectable_value(
-                                &mut self.deferred_dbg.debug_type,
-                                DeferredDebug::Depth,
-                                "Depth",
-                            );
-                            if self.ssao.enabled {
-                                ui.selectable_value(
-                                    &mut self.deferred_dbg.debug_type,
-                                    DeferredDebug::AmbientOcclusion,
-                                    "SSAO",
-                                );
-                            }
-                        });
-                });
-        }
-
-        if self.pipeline_type == PipelineType::Forward {
-            egui::Window::new("Forward")
-                .default_open(false)
-                .show(ctx, |ui| {
-                    ui.checkbox(&mut self.depth_prepass_enabled, "Do Depth Prepass");
-                });
-        }
-
-        egui::Window::new("Postprocess")
-            .default_open(false)
-            .show(ctx, |ui| {
-                ui.label("Saturation");
-                ui.add(egui::DragValue::new(self.postprocess.saturation_mut()).speed(0.01));
-                ui.label("Brightness");
-                ui.add(egui::DragValue::new(self.postprocess.brightness_mut()).speed(0.01));
-                ui.label("Contrast");
-                ui.add(egui::DragValue::new(self.postprocess.contrast_mut()).speed(0.01));
-                ui.label("Gamma");
-                ui.add(egui::DragValue::new(self.postprocess.gamma_mut()).speed(0.01));
-            });
-
-        egui::Window::new("Info").show(ctx, |ui| {
-            ui.label(format!("FPS: {:.2}", 1.0 / time_delta));
-        });
-    }
-
-    pub fn postprocess_settings(&self) -> &PostprocessSettings {
-        &self.postprocess
-    }
-}
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut gpu = Gpu::from_window(&window).await?;
@@ -333,6 +144,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let geometry_pass =
         GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
 
+    let deferred_debug_pass = deferred::DebugPass::new(&gpu, &shader_compiler)?;
+
     let ssao_pass: SsaoPass = SsaoPass::new(&gpu, &shader_compiler, &scene_uniform)?;
 
     let deferred_phong_pass = deferred::PhongPass::new(
@@ -360,118 +173,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let time = std::time::Instant::now();
     let mut last_time = time.elapsed();
     let ui = &mut ui_pass;
-
-    let dbg_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-        label: None,
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::FilterMode::Nearest,
-        ..Default::default()
-    });
-
-    let dbg_bgl = gpu
-        .device
-        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                    count: None,
-                },
-            ],
-        });
-
-    let dbg_bgl_depth = gpu
-        .device
-        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Depth,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                    count: None,
-                },
-            ],
-        });
-
-    let dbg_module = shader_compiler.compilation_unit("./shaders/showTexture.wgsl")?;
-    let dbg_shader = gpu.shader_from_module(dbg_module.compile(&[])?);
-    let dbg_depth_shader = gpu.shader_from_module(dbg_module.compile(&["DEPTH_TEXTURE"])?);
-
-    let dbg_pipeline_l = gpu
-        .device
-        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&dbg_bgl],
-            push_constant_ranges: &[],
-        });
-
-    let dbg_pipeline_l_depth = gpu
-        .device
-        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&dbg_bgl_depth],
-            push_constant_ranges: &[],
-        });
-
-    let [dbg_pipeline, dbg_depth_pipeline] = [
-        (dbg_shader, dbg_pipeline_l),
-        (dbg_depth_shader, dbg_pipeline_l_depth),
-    ]
-    .map(|(shader, layout)| {
-        gpu.device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: None,
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: gpu.swapchain_format(),
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            })
-    });
 
     event_loop
         .run(move |event, target| {
@@ -538,187 +239,30 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     );
 
                                     if settings.deferred_dbg.enabled {
-                                        let bg: wgpu::BindGroup;
-
-                                        match settings.deferred_dbg.debug_type {
-                                            DeferredDebug::Normals => {
-                                                let tv = g_bufs
-                                                    .g_normal
-                                                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                                                bg = gpu.device.create_bind_group(
-                                                 &wgpu::BindGroupDescriptor {
-                                                        label: Some("DeferredDebug::NormalsBG"),
-                                                        layout: &dbg_bgl,
-                                                        entries: &[
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 0,
-                                                                resource:
-                                                                    wgpu::BindingResource::TextureView(&tv),
-                                                            },
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 1,
-                                                                resource: wgpu::BindingResource::Sampler(
-                                                                    &dbg_sampler,
-                                                                ),
-                                                            },
-                                                        ],
-                                                    },
-                                                );
-                                            }
-                                            DeferredDebug::Diffuse => {
-                                                let tv = g_bufs
-                                                    .g_diffuse
-                                                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                                                bg = gpu.device.create_bind_group(
-                                                    &wgpu::BindGroupDescriptor {
-                                                        label: Some("DeferredDebug::DiffuseBG"),
-                                                        layout: &dbg_bgl,
-                                                        entries: &[
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 0,
-                                                                resource:
-                                                                    wgpu::BindingResource::TextureView(&tv),
-                                                            },
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 1,
-                                                                resource: wgpu::BindingResource::Sampler(
-                                                                    &dbg_sampler,
-                                                                ),
-                                                            },
-                                                        ],
-                                                    },
-                                                );
-                                            }
-                                            DeferredDebug::Specular => {
-                                                let tv = g_bufs
-                                                    .g_specular
-                                                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                                                bg = gpu.device.create_bind_group(
-                                                    &wgpu::BindGroupDescriptor {
-                                                        label: Some("DeferredDebug::SpecularBG"),
-                                                        layout: &dbg_bgl,
-                                                        entries: &[
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 0,
-                                                                resource:
-                                                                    wgpu::BindingResource::TextureView(&tv),
-                                                            },
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 1,
-                                                                resource: wgpu::BindingResource::Sampler(
-                                                                    &dbg_sampler,
-                                                                ),
-                                                            },
-                                                        ],
-                                                    },
-                                                );
-                                            }
-                                            DeferredDebug::Depth => {
-                                                let tv = gpu.depth_texture_view();
-
-                                                bg = gpu.device.create_bind_group(
-                                                    &wgpu::BindGroupDescriptor {
-                                                        label: Some("DeferredDebug::DepthBG"),
-                                                        layout: &dbg_bgl_depth,
-                                                        entries: &[
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 0,
-                                                                resource:
-                                                                    wgpu::BindingResource::TextureView(&tv),
-                                                            },
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 1,
-                                                                resource: wgpu::BindingResource::Sampler(
-                                                                    &dbg_sampler,
-                                                                ),
-                                                            },
-                                                        ],
-                                                    },
-                                                );
-                                            }
-                                            DeferredDebug::AmbientOcclusion => {
-                                                let tv = g_bufs
-                                                    .g_specular
-                                                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                                                bg = gpu.device.create_bind_group(
-                                                    &wgpu::BindGroupDescriptor {
-                                                        label: Some("DeferredDebug::AOBG"),
-                                                        layout: &dbg_bgl,
-                                                        entries: &[
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 0,
-                                                                resource:
-                                                                    wgpu::BindingResource::TextureView(&tv),
-                                                            },
-                                                            wgpu::BindGroupEntry {
-                                                                binding: 1,
-                                                                resource: wgpu::BindingResource::Sampler(
-                                                                    &dbg_sampler,
-                                                                ),
-                                                            },
-                                                        ],
-                                                    },
-                                                );
-                                            }
-                                        }
-
-                                        let mut encoder = gpu.device.create_command_encoder(
-                                            &wgpu::CommandEncoderDescriptor::default(),
-                                        );
-
-                                        let frame_view = frame
-                                            .texture
-                                            .create_view(&wgpu::TextureViewDescriptor::default());
-
-                                        {
-                                            let mut rpass =
-                                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                                    label: None,
-                                                    color_attachments: &[Some(
-                                                        wgpu::RenderPassColorAttachment {
-                                                            view: &frame_view,
-                                                            resolve_target: None,
-                                                            ops: wgpu::Operations {
-                                                                load: wgpu::LoadOp::Clear(
-                                                                    wgpu::Color::BLACK,
-                                                                ),
-                                                                store: wgpu::StoreOp::Store,
-                                                            },
-                                                        },
-                                                    )],
-                                                    depth_stencil_attachment: None,
-                                                    timestamp_writes: None,
-                                                    occlusion_query_set: None,
-                                                });
-
-                                            if settings.deferred_dbg.debug_type == DeferredDebug::Depth {
-                                                rpass.set_pipeline(&dbg_depth_pipeline);
-                                            } else {
-                                                rpass.set_pipeline(&dbg_pipeline);
-                                            }
-
-                                            rpass.set_bind_group(0, &bg, &[]);
-                                            rpass.draw(0..4, 0..1);
-                                        }
-
-                                        gpu.queue.submit(Some(encoder.finish()));
-                                    }
-
-                                    if !settings.skybox_disabled {
-                                        skybox_pass.render(gpu, &scene_uniform, deferred_phong_pass.output_tex_view(), true);
-                                    }
-
-                                    if !settings.postprocess_disabled {
-                                        frame = postprocess_pass.render(
+                                        deferred_debug_pass.render(
                                             gpu,
-                                            settings.postprocess_settings(),
-                                            frame,
-                                            settings.pipeline_type == PipelineType::Deferred,
-                                        );
+                                            g_bufs,
+                                            &frame,
+                                            &settings.deferred_dbg.debug_type,
+                                        )
+                                    } else {
+                                        if !settings.skybox_disabled {
+                                            skybox_pass.render(
+                                                gpu,
+                                                &scene_uniform,
+                                                deferred_phong_pass.output_tex_view(),
+                                                true,
+                                            );
+                                        }
+
+                                        if !settings.postprocess_disabled {
+                                            frame = postprocess_pass.render(
+                                                gpu,
+                                                settings.postprocess_settings(),
+                                                frame,
+                                                settings.pipeline_type == PipelineType::Deferred,
+                                            );
+                                        }
                                     }
 
                                     let frame = ui.render(gpu, frame, window, ui_update);
@@ -739,7 +283,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     );
 
                                     if !settings.skybox_disabled {
-                                        skybox_pass.render(gpu, &scene_uniform, frame.texture.create_view(&Default::default()), false);
+                                        skybox_pass.render(
+                                            gpu,
+                                            &scene_uniform,
+                                            frame.texture.create_view(&Default::default()),
+                                            false,
+                                        );
                                     }
 
                                     if !settings.postprocess_disabled {
@@ -747,7 +296,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                             gpu,
                                             settings.postprocess_settings(),
                                             frame,
-                                            settings.deferred_enabled,
+                                            settings.pipeline_type == PipelineType::Deferred,
                                         );
                                     }
 

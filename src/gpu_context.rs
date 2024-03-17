@@ -1,4 +1,5 @@
 use anyhow::Result;
+use fnv::FnvHashMap;
 use std::sync::RwLock;
 
 use crate::camera::GpuCamera;
