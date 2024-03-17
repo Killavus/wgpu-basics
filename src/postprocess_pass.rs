@@ -11,7 +11,6 @@ pub struct PostprocessPass {
     settings_buf: wgpu::Buffer,
     sampler: wgpu::Sampler,
     texture: wgpu::Texture,
-    blur_pass: BlurPass,
 }
 
 #[derive(ShaderType, PartialEq)]
@@ -70,8 +69,6 @@ impl PostprocessPass {
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-
-        let blur_pass = BlurPass::new(gpu, shader_compiler, tex_size, gpu.swapchain_format())?;
 
         let bgl: wgpu::BindGroupLayout =
             gpu.device
@@ -217,7 +214,6 @@ impl PostprocessPass {
             deferred_bg,
             pipeline,
             settings_buf,
-            blur_pass,
             texture,
         })
     }

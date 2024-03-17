@@ -9,7 +9,8 @@ use anyhow::Result;
 
 pub struct SkyboxPass {
     bg: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
+    rgba8_pipeline: wgpu::RenderPipeline,
+    rgba16_pipeline: wgpu::RenderPipeline,
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
 }
@@ -104,7 +105,7 @@ impl SkyboxPass {
                 push_constant_ranges: &[],
             });
 
-        let pipeline = gpu
+        let rgba8_pipeline = gpu
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: None,
@@ -134,9 +135,44 @@ impl SkyboxPass {
                 multiview: None,
             });
 
+        let rgba16_pipeline = gpu
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&pipelinel),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[Mesh::pn_vertex_layout()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview: None,
+            });
+
         Ok(Self {
             bg,
-            pipeline,
+            rgba8_pipeline,
+            rgba16_pipeline,
             vbuf,
             ibuf,
         })
@@ -146,16 +182,15 @@ impl SkyboxPass {
         &self,
         gpu: &Gpu,
         scene_uniform: &SceneUniform,
-        frame: wgpu::SurfaceTexture,
-    ) -> wgpu::SurfaceTexture {
+        output_tv: wgpu::TextureView,
+        hdr: bool,
+    ) {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
         {
-            let frame_view = frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
+            let frame_view = output_tv;
             let depth_view = gpu.depth_texture_view();
 
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -180,7 +215,12 @@ impl SkyboxPass {
                 occlusion_query_set: None,
             });
 
-            rpass.set_pipeline(&self.pipeline);
+            if hdr {
+                rpass.set_pipeline(&self.rgba16_pipeline);
+            } else {
+                rpass.set_pipeline(&self.rgba8_pipeline);
+            }
+
             rpass.set_bind_group(0, scene_uniform.bind_group(), &[]);
             rpass.set_bind_group(1, &self.bg, &[]);
 
@@ -190,6 +230,5 @@ impl SkyboxPass {
         }
 
         gpu.queue.submit(Some(encoder.finish()));
-        frame
     }
 }
