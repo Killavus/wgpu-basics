@@ -1,8 +1,8 @@
 #import gpubasics::deferred::shaders::screen_quad_vs::screenQuad;
 #import gpubasics::deferred::outputs::vertex::{VertexOutput};
-#import gpubasics::deferred::ssao::fragment::{worldPos, normal, noise, depth};
+#import gpubasics::deferred::ssao::fragment::{cameraPos, normal, noise, depth};
 #import gpubasics::deferred::ssao::bindings::samples;
-#import gpubasics::global::bindings::{camera, projection};
+#import gpubasics::global::bindings::{projection};
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
@@ -13,7 +13,7 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) f32 {
     var SSAO_SAMPLES_CNT = u32(64);
 
-    var pos = worldPos(in).xyz;
+    var pos = cameraPos(in).xyz;
     var normal = normal(in);
     var noise = noise(in).rgb;
 
@@ -30,14 +30,14 @@ fn fs_main(in: VertexOutput) -> @location(0) f32 {
         sample = pos + sample * radius;
 
         var offset = vec4(sample, 1.0);
-        var clipPos = projection * camera * offset;
+        var clipPos = projection * offset;
         clipPos /= clipPos.w;
 
         var sampleOut: VertexOutput;
         sampleOut.clip = vec4(clipPos.xy, 0.0, 1.0);
         sampleOut.uv = clipPos.xy * vec2(0.5, -0.5) + 0.5;
 
-        var sampleDepth = worldPos(sampleOut).z;
+        var sampleDepth = cameraPos(sampleOut).z;
         var rangeCheck = smoothstep(0.0, 1.0, radius / abs(pos.z - sampleDepth));
 
         if sampleDepth >= sample.z + 0.025 {
