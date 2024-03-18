@@ -22,7 +22,7 @@ fn fs_main(in: VertexOutput) -> @location(0) f32 {
     var bitangent = cross(normal, tangent);
 
     var tbn = mat3x3(tangent, bitangent, normal);
-    var radius = 0.33;
+    var radius = 0.5;
 
     var occlusion = 0.0;
     for (var i = u32(0); i < SSAO_SAMPLES_CNT; i += u32(1)) {
@@ -40,7 +40,7 @@ fn fs_main(in: VertexOutput) -> @location(0) f32 {
         var sampleDepth = cameraPos(sampleOut).z;
         var rangeCheck = smoothstep(0.0, 1.0, radius / abs(pos.z - sampleDepth));
 
-        if sampleDepth >= sample.z + 0.025 {
+        if sampleDepth >= sample.z + 0.075 {
             occlusion += 1.0 * rangeCheck;
         }
     }
