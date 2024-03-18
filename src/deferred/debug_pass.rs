@@ -142,6 +142,7 @@ impl DebugPass {
         gpu: &Gpu,
         g_bufs: &GBuffers,
         frame: &wgpu::SurfaceTexture,
+        ssao_tv: &wgpu::TextureView,
         debug_type: &DeferredDebug,
     ) {
         let bg = match debug_type {
@@ -224,9 +225,7 @@ impl DebugPass {
                 })
             }
             DeferredDebug::AmbientOcclusion => {
-                let tv = g_bufs
-                    .g_specular
-                    .create_view(&wgpu::TextureViewDescriptor::default());
+                let tv = ssao_tv;
 
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("DeferredDebug::AOBG"),
@@ -234,7 +233,7 @@ impl DebugPass {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&tv),
+                            resource: wgpu::BindingResource::TextureView(tv),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,

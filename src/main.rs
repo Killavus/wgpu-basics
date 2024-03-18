@@ -230,6 +230,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     );
 
                                     let ssao_tex = ssao_pass.render(gpu, g_bufs, &scene_uniform);
+
                                     deferred_phong_pass.render(
                                         gpu,
                                         g_bufs,
@@ -243,6 +244,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                             gpu,
                                             g_bufs,
                                             &frame,
+                                            &ssao_tex,
                                             &settings.deferred_dbg.debug_type,
                                         )
                                     } else {
