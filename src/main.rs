@@ -22,7 +22,6 @@ mod compute;
 mod deferred;
 mod forward;
 mod gpu;
-mod gpu_context;
 mod loader;
 mod material;
 mod mesh;
