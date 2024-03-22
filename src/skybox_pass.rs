@@ -21,7 +21,6 @@ impl SkyboxPass {
         shader_compiler: &mut ShaderCompiler,
         scene_uniform: &SceneUniform,
         skybox_tex: wgpu::Texture,
-        skybox_sampler: wgpu::Sampler,
     ) -> Result<Self> {
         let cube_mesh = MeshBuilder::new().with_geometry(Cube::geometry()).build()?;
         let mut cube_vbuf = vec![];
@@ -30,6 +29,17 @@ impl SkyboxPass {
         cube_mesh.copy_to_index_buffer(&mut cube_index);
 
         use wgpu::util::DeviceExt;
+
+        let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
 
         let vbuf = gpu
             .device
@@ -86,7 +96,7 @@ impl SkyboxPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&skybox_sampler),
+                    resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
         });

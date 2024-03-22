@@ -1,5 +1,4 @@
 use anyhow::Result;
-use image::EncodableLayout;
 
 use postprocess_pass::PostprocessPass;
 use scene::GpuScene;
@@ -58,62 +57,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut settings: AppSettings = AppSettings::default();
 
     let gpu_scene = GpuScene::new(&gpu, scene)?;
-
-    let (sky_width, sky_height, sky_data) = [
-        image::open("./textures/skybox/posx.jpg")?,
-        image::open("./textures/skybox/negx.jpg")?,
-        image::open("./textures/skybox/posy.jpg")?,
-        image::open("./textures/skybox/negy.jpg")?,
-        image::open("./textures/skybox/posz.jpg")?,
-        image::open("./textures/skybox/negz.jpg")?,
-    ]
-    .into_iter()
-    .fold((0, 0, vec![]), |mut acc, img| {
-        acc.0 = img.width();
-        acc.1 = img.height();
-        acc.2.extend_from_slice(img.to_rgba8().as_bytes());
-
-        acc
-    });
-
-    let skybox_size = wgpu::Extent3d {
-        width: sky_width,
-        height: sky_height,
-        depth_or_array_layers: 6,
-    };
-
-    let skybox_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: None,
-        size: skybox_size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-
-    gpu.queue.write_texture(
-        skybox_tex.as_image_copy(),
-        &sky_data,
-        wgpu::ImageDataLayout {
-            offset: 0,
-            bytes_per_row: Some(4 * sky_width),
-            rows_per_image: Some(sky_height),
-        },
-        skybox_size,
-    );
-
-    let skybox_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-        label: None,
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Nearest,
-        ..Default::default()
-    });
+    let skybox_texture = test_scenes::load_skybox(&gpu)?;
 
     let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
     let mut shader_compiler = ShaderCompiler::new("./shaders")?;
@@ -132,13 +76,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
         shadow_pass.out_bind_group_layout(),
     )?;
 
-    let skybox_pass = SkyboxPass::new(
-        &gpu,
-        &mut shader_compiler,
-        &scene_uniform,
-        skybox_tex,
-        skybox_sampler,
-    )?;
+    let skybox_pass = SkyboxPass::new(&gpu, &mut shader_compiler, &scene_uniform, skybox_texture)?;
 
     let geometry_pass =
         GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
