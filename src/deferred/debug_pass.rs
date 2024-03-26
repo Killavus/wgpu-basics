@@ -1,4 +1,6 @@
-use crate::{gpu::Gpu, shader_compiler::ShaderCompiler};
+use std::sync::Arc;
+
+use crate::{gpu::Gpu, render_context::RenderContext, shader_compiler::ShaderCompiler};
 use anyhow::Result;
 
 use super::geometry_pass::GBuffers;
@@ -13,14 +15,21 @@ pub enum DeferredDebug {
     AmbientOcclusion,
 }
 
-pub struct DebugPass {
+pub struct DebugPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     pipeline_depth: wgpu::RenderPipeline,
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
 }
 
-impl DebugPass {
-    pub fn new(gpu: &Gpu, shader_compiler: &ShaderCompiler) -> Result<Self> {
+impl<'window> DebugPass<'window> {
+    pub fn new(render_ctx: Arc<RenderContext<'window>>) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            ..
+        } = render_ctx.as_ref();
+
         let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -131,6 +140,7 @@ impl DebugPass {
             });
 
         Ok(Self {
+            render_ctx,
             pipeline_depth,
             pipeline,
             sampler,
@@ -139,12 +149,13 @@ impl DebugPass {
 
     pub fn render(
         &self,
-        gpu: &Gpu,
         g_bufs: &GBuffers,
         frame: &wgpu::SurfaceTexture,
         ssao_tv: &wgpu::TextureView,
         debug_type: &DeferredDebug,
     ) {
+        let gpu = &self.render_ctx.gpu;
+
         let bg = match debug_type {
             DeferredDebug::Normals => {
                 let tv = g_bufs

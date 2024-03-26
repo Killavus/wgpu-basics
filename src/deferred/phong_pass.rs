@@ -1,13 +1,13 @@
-use crate::{
-    gpu::Gpu, phong_light::PhongLightScene, scene_uniform::SceneUniform,
-    shader_compiler::ShaderCompiler,
-};
+use std::sync::Arc;
+
+use crate::render_context::RenderContext;
 use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
 
 use super::geometry_pass::GBuffers;
 
-pub struct PhongPass {
+pub struct PhongPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     pipeline: wgpu::RenderPipeline,
     light_buf: wgpu::Buffer,
     g_sampler: wgpu::Sampler,
@@ -15,14 +15,19 @@ pub struct PhongPass {
     fill_bgl: wgpu::BindGroupLayout,
 }
 
-impl PhongPass {
+impl<'window> PhongPass<'window> {
     pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
-        lights: &PhongLightScene,
-        scene_uniform: &SceneUniform,
+        render_ctx: Arc<RenderContext<'window>>,
         shadow_bgl: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            scene_uniform,
+            light_scene: lights,
+            ..
+        } = render_ctx.as_ref();
+
         let fill_bgl = gpu
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -184,6 +189,7 @@ impl PhongPass {
             });
 
         Ok(Self {
+            render_ctx,
             fill_bgl,
             light_buf,
             g_sampler,
@@ -198,12 +204,14 @@ impl PhongPass {
 
     pub fn render(
         &self,
-        gpu: &Gpu,
         g_buffers: &GBuffers,
-        scene_uniform: &SceneUniform,
         spass_bg: &wgpu::BindGroup,
         ssao_tex: &wgpu::TextureView,
     ) {
+        let RenderContext {
+            gpu, scene_uniform, ..
+        } = self.render_ctx.as_ref();
+
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

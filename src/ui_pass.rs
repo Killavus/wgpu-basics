@@ -1,15 +1,20 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 
-use crate::gpu::Gpu;
+use crate::render_context::RenderContext;
 
-pub struct UiPass {
+pub struct UiPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     ctx: egui::Context,
     state: egui_winit::State,
     renderer: egui_wgpu::Renderer,
 }
 
-impl UiPass {
-    pub fn new(window: &winit::window::Window, gpu: &Gpu) -> Result<Self> {
+impl<'window> UiPass<'window> {
+    pub fn new(render_ctx: Arc<RenderContext<'window>>) -> Result<Self> {
+        let RenderContext { gpu, window, .. } = render_ctx.as_ref();
+
         let ctx = egui::Context::default();
         let viewport_id = ctx.viewport_id();
 
@@ -22,6 +27,7 @@ impl UiPass {
         let renderer = egui_wgpu::Renderer::new(&gpu.device, gpu.swapchain_format(), None, 1);
 
         Ok(Self {
+            render_ctx,
             ctx,
             state,
             renderer,
@@ -49,11 +55,11 @@ impl UiPass {
 
     pub fn render(
         &mut self,
-        gpu: &Gpu,
         frame: wgpu::SurfaceTexture,
-        window: &winit::window::Window,
         output: egui::FullOutput,
     ) -> wgpu::SurfaceTexture {
+        let RenderContext { gpu, window, .. } = self.render_ctx.as_ref();
+
         self.state
             .handle_platform_output(window, output.platform_output);
 

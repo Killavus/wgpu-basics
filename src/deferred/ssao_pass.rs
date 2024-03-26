@@ -1,15 +1,18 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use encase::{ShaderType, UniformBuffer};
 use nalgebra as na;
 use rand::distributions::Uniform;
 
 use crate::{
-    compute::BlurPass, gpu::Gpu, scene_uniform::SceneUniform, shader_compiler::ShaderCompiler,
+    compute::BlurPass, gpu::Gpu, render_context::RenderContext, scene_uniform::SceneUniform,
 };
 
 use super::geometry_pass::GBuffers;
 
-pub struct SsaoPass {
+pub struct SsaoPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     ssao_bgl: wgpu::BindGroupLayout,
     samples_buf: wgpu::Buffer,
     output_tex: wgpu::Texture,
@@ -69,12 +72,15 @@ fn generate_noise() -> [na::Vector4<f32>; NOISE_TEX_SIZE] {
     result
 }
 
-impl SsaoPass {
-    pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &ShaderCompiler,
-        scene_uniform: &SceneUniform,
-    ) -> Result<Self> {
+impl<'window> SsaoPass<'window> {
+    pub fn new(render_ctx: Arc<RenderContext<'window>>) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            scene_uniform,
+            ..
+        } = render_ctx.as_ref();
+
         use wgpu::util::DeviceExt;
 
         let samples = generate_samples();
@@ -260,6 +266,7 @@ impl SsaoPass {
             BlurPass::new(gpu, shader_compiler, output_tex.size(), output_tex.format())?;
 
         Ok(Self {
+            render_ctx,
             ssao_bgl,
             output_tex,
             samples_buf,
@@ -271,12 +278,11 @@ impl SsaoPass {
         })
     }
 
-    pub fn render(
-        &self,
-        gpu: &Gpu,
-        g_buffers: &GBuffers,
-        scene_uniform: &SceneUniform,
-    ) -> wgpu::TextureView {
+    pub fn render(&self, g_buffers: &GBuffers) -> wgpu::TextureView {
+        let RenderContext {
+            gpu, scene_uniform, ..
+        } = self.render_ctx.as_ref();
+
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

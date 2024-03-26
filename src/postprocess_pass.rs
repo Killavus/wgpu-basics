@@ -1,9 +1,14 @@
-use crate::{compute::BlurPass, gpu::Gpu, shader_compiler::ShaderCompiler};
+use std::sync::Arc;
+
+use crate::{
+    compute::BlurPass, gpu::Gpu, render_context::RenderContext, shader_compiler::ShaderCompiler,
+};
 use anyhow::Result;
 use encase::{ShaderSize, ShaderType, UniformBuffer};
 use nalgebra as na;
 
-pub struct PostprocessPass {
+pub struct PostprocessPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     forward_bg: wgpu::BindGroup,
     deferred_bg: wgpu::BindGroup,
     bgl: wgpu::BindGroupLayout,
@@ -50,13 +55,18 @@ impl PostprocessSettings {
     }
 }
 
-impl PostprocessPass {
+impl<'window> PostprocessPass<'window> {
     pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
+        render_ctx: Arc<RenderContext<'window>>,
         deferred_texture: &wgpu::TextureView,
         settings: &PostprocessSettings,
     ) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            ..
+        } = render_ctx.as_ref();
+
         let tex_size = gpu.viewport_size();
 
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -208,6 +218,7 @@ impl PostprocessPass {
             });
 
         Ok(Self {
+            render_ctx,
             sampler,
             bgl,
             forward_bg,
@@ -265,11 +276,12 @@ impl PostprocessPass {
 
     pub fn render(
         &self,
-        gpu: &Gpu,
         settings: &PostprocessSettings,
         frame: wgpu::SurfaceTexture,
         deferred: bool,
     ) -> wgpu::SurfaceTexture {
+        let RenderContext { gpu, .. } = self.render_ctx.as_ref();
+
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

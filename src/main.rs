@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 
 use postprocess_pass::PostprocessPass;
+use render_context::RenderContext;
 use scene::GpuScene;
 use scene_uniform::SceneUniform;
 use settings::AppSettings;
@@ -21,12 +24,13 @@ mod compute;
 mod deferred;
 mod forward;
 mod gpu;
+mod light_scene;
 mod loader;
 mod material;
 mod mesh;
-mod phong_light;
 mod postprocess_pass;
 mod projection;
+mod render_context;
 mod scene;
 mod scene_uniform;
 mod settings;
@@ -44,7 +48,7 @@ const TILT_DELTA: f32 = 1.0;
 
 use gpu::Gpu;
 
-use crate::{phong_light::PhongLight, settings::PipelineType};
+use crate::{light_scene::Light, settings::PipelineType};
 use deferred::{GeometryPass, SsaoPass};
 
 async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
@@ -52,57 +56,49 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
     let (scene, material_atlas, lights, mut camera, projection, projection_mat, _) =
         test_scenes::teapot_scene(&gpu)?;
+    let gpu_scene = GpuScene::new(&gpu, scene)?;
+    let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
 
-    let mut ui_pass: UiPass = UiPass::new(&window, &gpu)?;
+    let render_ctx = Arc::new(RenderContext::new(
+        &window,
+        gpu,
+        ShaderCompiler::new("./shaders")?,
+        scene_uniform,
+        gpu_scene,
+        material_atlas,
+        lights,
+    ));
+
+    let mut ui_pass: UiPass = UiPass::new(render_ctx.clone())?;
     let mut settings: AppSettings = AppSettings::default();
 
-    let gpu_scene = GpuScene::new(&gpu, scene)?;
-    let skybox_texture = test_scenes::load_skybox(&gpu)?;
-
-    let scene_uniform = SceneUniform::new(&gpu, &camera, &projection);
-    let mut shader_compiler = ShaderCompiler::new("./shaders")?;
+    let skybox_texture = test_scenes::load_skybox(&render_ctx.gpu)?;
 
     let shadow_pass =
-        DirectionalShadowPass::new(&gpu, &mut shader_compiler, [0.2, 0.5, 1.0], &projection_mat)?;
+        DirectionalShadowPass::new(render_ctx.clone(), [0.2, 0.5, 1.0], &projection_mat)?;
+    let depth_prepass = DepthPrepass::new(render_ctx.clone())?;
 
-    let depth_prepass = DepthPrepass::new(&gpu, &mut shader_compiler, &scene_uniform)?;
+    let forward_phong_pass =
+        forward::PhongPass::new(render_ctx.clone(), shadow_pass.out_bind_group_layout())?;
 
-    let forward_phong_pass = forward::PhongPass::new(
-        &gpu,
-        &mut shader_compiler,
-        &scene_uniform,
-        &lights,
-        &material_atlas,
-        shadow_pass.out_bind_group_layout(),
-    )?;
+    let skybox_pass = SkyboxPass::new(render_ctx.clone(), skybox_texture)?;
 
-    let skybox_pass = SkyboxPass::new(&gpu, &mut shader_compiler, &scene_uniform, skybox_texture)?;
+    let geometry_pass = GeometryPass::new(render_ctx.clone())?;
 
-    let geometry_pass =
-        GeometryPass::new(&gpu, &mut shader_compiler, &material_atlas, &scene_uniform)?;
+    let deferred_debug_pass = deferred::DebugPass::new(render_ctx.clone())?;
 
-    let deferred_debug_pass = deferred::DebugPass::new(&gpu, &shader_compiler)?;
+    let ssao_pass: SsaoPass = SsaoPass::new(render_ctx.clone())?;
 
-    let ssao_pass: SsaoPass = SsaoPass::new(&gpu, &shader_compiler, &scene_uniform)?;
+    let deferred_phong_pass =
+        deferred::PhongPass::new(render_ctx.clone(), shadow_pass.out_bind_group_layout())?;
 
-    let deferred_phong_pass = deferred::PhongPass::new(
-        &gpu,
-        &mut shader_compiler,
-        &lights,
-        &scene_uniform,
-        shadow_pass.out_bind_group_layout(),
-    )?;
-
-    let mut postprocess_pass = PostprocessPass::new(
-        &gpu,
-        &mut shader_compiler,
+    let postprocess_pass = PostprocessPass::new(
+        render_ctx.clone(),
         &deferred_phong_pass.output_tex_view(),
         settings.postprocess_settings(),
     )?;
 
     let window: &Window = &window;
-
-    let gpu = &mut gpu;
 
     let mut dragging = false;
     let mut drag_origin: Option<(f64, f64)> = None;
@@ -111,9 +107,12 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
     let mut last_time = time.elapsed();
     let ui = &mut ui_pass;
 
+    let render_ctx = render_ctx.clone();
     event_loop
         .run(move |event, target| {
             use winit::keyboard::KeyCode;
+            let gpu = &render_ctx.gpu;
+            let lights = &render_ctx.light_scene;
 
             if let Event::WindowEvent {
                 window_id: _,
@@ -124,8 +123,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                     match event {
                         WindowEvent::Resized(new_size) => {
                             // Reconfigure the surface with the new size
-                            gpu.on_resize((new_size.width, new_size.height));
-                            postprocess_pass.on_resize(gpu, (new_size.width, new_size.height));
+                            // gpu.on_resize((new_size.width, new_size.height));
+                            // postprocess_pass.on_resize(gpu, (new_size.width, new_size.height));
                             window.request_redraw();
                         }
                         WindowEvent::CloseRequested => {
@@ -140,18 +139,17 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
                             let spass_bg = shadow_pass
                                 .render(
-                                    gpu,
-                                    lights.directional.first().unwrap_or(
-                                        &PhongLight::new_directional(
+                                    lights
+                                        .directional
+                                        .first()
+                                        .unwrap_or(&Light::new_directional(
                                             na::Vector3::zeros(),
                                             na::Vector3::zeros(),
                                             na::Vector3::zeros(),
                                             na::Vector3::zeros(),
-                                        ),
-                                    ),
+                                        )),
                                     &camera,
                                     &projection_mat,
-                                    &gpu_scene,
                                 )
                                 .unwrap();
 
@@ -159,26 +157,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                 PipelineType::Deferred => {
                                     let mut frame = gpu.current_texture();
 
-                                    let g_bufs = geometry_pass.render(
-                                        gpu,
-                                        &material_atlas,
-                                        &scene_uniform,
-                                        &gpu_scene,
-                                    );
+                                    let g_bufs = geometry_pass.render();
 
-                                    let ssao_tex = ssao_pass.render(gpu, g_bufs, &scene_uniform);
+                                    let ssao_tex = ssao_pass.render(g_bufs);
 
-                                    deferred_phong_pass.render(
-                                        gpu,
-                                        g_bufs,
-                                        &scene_uniform,
-                                        spass_bg,
-                                        &ssao_tex,
-                                    );
+                                    deferred_phong_pass.render(g_bufs, spass_bg, &ssao_tex);
 
                                     if settings.deferred_dbg.enabled {
                                         deferred_debug_pass.render(
-                                            gpu,
                                             g_bufs,
                                             &frame,
                                             &ssao_tex,
@@ -187,8 +173,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                     } else {
                                         if !settings.skybox_disabled {
                                             skybox_pass.render(
-                                                gpu,
-                                                &scene_uniform,
                                                 deferred_phong_pass.output_tex_view(),
                                                 true,
                                             );
@@ -196,7 +180,6 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
                                         if !settings.postprocess_disabled {
                                             frame = postprocess_pass.render(
-                                                gpu,
                                                 settings.postprocess_settings(),
                                                 frame,
                                                 settings.pipeline_type == PipelineType::Deferred,
@@ -204,27 +187,19 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
                                         }
                                     }
 
-                                    let frame = ui.render(gpu, frame, window, ui_update);
+                                    let frame = ui.render(frame, ui_update);
                                     frame.present();
                                 }
                                 PipelineType::Forward => {
                                     if settings.depth_prepass_enabled {
-                                        depth_prepass.render(gpu, &scene_uniform, &gpu_scene);
+                                        depth_prepass.render();
                                     }
 
-                                    let mut frame = forward_phong_pass.render(
-                                        gpu,
-                                        &scene_uniform,
-                                        &material_atlas,
-                                        &gpu_scene,
-                                        spass_bg,
-                                        settings.depth_prepass_enabled,
-                                    );
+                                    let mut frame = forward_phong_pass
+                                        .render(spass_bg, settings.depth_prepass_enabled);
 
                                     if !settings.skybox_disabled {
                                         skybox_pass.render(
-                                            gpu,
-                                            &scene_uniform,
                                             frame.texture.create_view(&Default::default()),
                                             false,
                                         );
@@ -232,14 +207,13 @@ async fn run(event_loop: EventLoop<()>, window: Window) -> Result<()> {
 
                                     if !settings.postprocess_disabled {
                                         frame = postprocess_pass.render(
-                                            gpu,
                                             settings.postprocess_settings(),
                                             frame,
                                             settings.pipeline_type == PipelineType::Deferred,
                                         );
                                     }
 
-                                    let frame = ui.render(gpu, frame, window, ui_update);
+                                    let frame = ui.render(frame, ui_update);
                                     frame.present();
                                 }
                             }

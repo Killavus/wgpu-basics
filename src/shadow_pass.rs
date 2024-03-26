@@ -1,21 +1,21 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, sync::Arc};
 
 use anyhow::Result;
 use encase::{ShaderSize, ShaderType, UniformBuffer};
-use naga_oil::compose::ShaderDefValue;
 use nalgebra as na;
 
 use crate::{
     camera::GpuCamera,
     gpu::Gpu,
+    light_scene::Light,
     mesh::{Mesh, MeshVertexArrayType},
-    phong_light::PhongLight,
     projection::wgpu_projection,
+    render_context::RenderContext,
     scene::{GpuScene, Instance},
-    shader_compiler::ShaderCompiler,
 };
 
-pub struct DirectionalShadowPass {
+pub struct DirectionalShadowPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     splits: [f32; SPLIT_COUNT],
     pipeline: wgpu::RenderPipeline,
     pnuv_pipeline: wgpu::RenderPipeline,
@@ -101,13 +101,18 @@ fn split_frustum(
     result
 }
 
-impl DirectionalShadowPass {
+impl<'window> DirectionalShadowPass<'window> {
     pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
+        render_ctx: Arc<RenderContext<'window>>,
         splits: [f32; SPLIT_COUNT],
         projection_mat: &na::Matrix4<f32>,
     ) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            ..
+        } = render_ctx.as_ref();
+
         let depth_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -417,6 +422,7 @@ impl DirectionalShadowPass {
         });
 
         Ok(Self {
+            render_ctx,
             splits,
             pntbuv_pipeline,
             pnuv_pipeline,
@@ -436,7 +442,7 @@ impl DirectionalShadowPass {
     }
 
     fn calculate_proj_view_mats(
-        light: &PhongLight,
+        light: &Light,
         frustum: &[na::Point3<f32>],
     ) -> (na::Matrix4<f32>, na::Matrix4<f32>) {
         let near_plane_center = frustum[0] + ((frustum[3] - frustum[0]) / 2.0);
@@ -477,12 +483,16 @@ impl DirectionalShadowPass {
 
     pub fn render(
         &self,
-        gpu: &Gpu,
-        light: &PhongLight,
+        light: &Light,
         camera: &GpuCamera,
         projection_mat: &na::Matrix4<f32>,
-        scene: &GpuScene,
     ) -> Result<&wgpu::BindGroup> {
+        let RenderContext {
+            gpu,
+            gpu_scene: scene,
+            ..
+        } = self.render_ctx.as_ref();
+
         let full_frustum = calculate_frustum(&camera.look_at_matrix(), projection_mat)?;
 
         let frustum_splits = split_frustum(&full_frustum, &self.splits);

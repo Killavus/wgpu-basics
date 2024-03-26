@@ -5,7 +5,7 @@ use nalgebra as na;
 // * According to Mario, GPU is aligning to vec4s anyway.
 // * We can tightly pack the structure this way, avoiding unnecessary padding.
 #[derive(ShaderType, Clone, Copy)]
-pub struct PhongLight {
+pub struct Light {
     // w = angle if light is spot light
     pub position: na::Vector4<f32>,
     // w = unused
@@ -19,23 +19,23 @@ pub struct PhongLight {
 }
 
 #[derive(ShaderType)]
-pub struct GpuPhongLights {
+pub struct GpuLightScene {
     num_directional: u32,
     num_point: u32,
     num_spot: u32,
     size: ArrayLength,
     #[size(runtime)]
-    lights: Vec<PhongLight>,
+    lights: Vec<Light>,
 }
 
 #[derive(Default)]
-pub struct PhongLightScene {
-    pub directional: Vec<PhongLight>,
-    pub point: Vec<PhongLight>,
-    pub spot: Vec<PhongLight>,
+pub struct LightScene {
+    pub directional: Vec<Light>,
+    pub point: Vec<Light>,
+    pub spot: Vec<Light>,
 }
 
-impl PhongLightScene {
+impl LightScene {
     pub fn new_point(
         &mut self,
         position: na::Vector3<f32>,
@@ -44,7 +44,7 @@ impl PhongLightScene {
         specular: na::Vector3<f32>,
         attenuation: na::Vector3<f32>,
     ) {
-        self.point.push(PhongLight::new_point(
+        self.point.push(Light::new_point(
             position,
             ambient,
             diffuse,
@@ -60,7 +60,7 @@ impl PhongLightScene {
         diffuse: na::Vector3<f32>,
         specular: na::Vector3<f32>,
     ) {
-        self.directional.push(PhongLight::new_directional(
+        self.directional.push(Light::new_directional(
             direction, ambient, diffuse, specular,
         ));
     }
@@ -75,7 +75,7 @@ impl PhongLightScene {
         angle: f32,
         attenuation: na::Vector3<f32>,
     ) {
-        self.spot.push(PhongLight::new_spot(
+        self.spot.push(Light::new_spot(
             position,
             direction,
             ambient,
@@ -86,8 +86,8 @@ impl PhongLightScene {
         ));
     }
 
-    pub fn into_gpu(&self) -> GpuPhongLights {
-        GpuPhongLights {
+    pub fn into_gpu(&self) -> GpuLightScene {
+        GpuLightScene {
             num_directional: self.directional.len() as u32,
             num_point: self.point.len() as u32,
             num_spot: self.spot.len() as u32,
@@ -103,7 +103,7 @@ impl PhongLightScene {
     }
 }
 
-impl PhongLight {
+impl Light {
     pub fn new_point(
         position: na::Vector3<f32>,
         ambient: na::Vector3<f32>,

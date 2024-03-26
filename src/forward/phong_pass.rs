@@ -1,16 +1,15 @@
+use std::sync::Arc;
+
 use crate::{
-    gpu::Gpu,
-    material::MaterialAtlas,
     mesh::{Mesh, MeshVertexArrayType},
-    phong_light::PhongLightScene,
-    scene::{GpuScene, Instance},
-    scene_uniform::SceneUniform,
-    shader_compiler::ShaderCompiler,
+    render_context::RenderContext,
+    scene::Instance,
 };
 use anyhow::Result;
 use encase::{ShaderType, StorageBuffer};
 
-pub struct PhongPass {
+pub struct PhongPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     lights_bg: wgpu::BindGroup,
     #[allow(dead_code)]
     lights_buf: wgpu::Buffer,
@@ -23,15 +22,21 @@ struct PhongPipelines {
     textured_normal: wgpu::RenderPipeline,
 }
 
-impl PhongPass {
+impl<'window> PhongPass<'window> {
     pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
-        scene_uniform: &SceneUniform,
-        lights: &PhongLightScene,
-        material_atlas: &MaterialAtlas,
+        render_ctx: Arc<RenderContext<'window>>,
         shadow_bgl: &wgpu::BindGroupLayout,
     ) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            scene_uniform,
+            light_scene: lights,
+            material_atlas,
+            gpu_scene,
+            ..
+        } = render_ctx.as_ref();
+
         use wgpu::util::DeviceExt;
 
         let gpu_lights = lights.into_gpu();
@@ -240,21 +245,22 @@ impl PhongPass {
         };
 
         Ok(Self {
+            render_ctx,
             lights_bg,
             lights_buf: light_buf,
             pipelines,
         })
     }
 
-    pub fn render(
-        &self,
-        gpu: &Gpu,
-        scene_uniform: &SceneUniform,
-        atlas: &MaterialAtlas,
-        scene: &GpuScene,
-        shadow_bg: &wgpu::BindGroup,
-        with_prepass: bool,
-    ) -> wgpu::SurfaceTexture {
+    pub fn render(&self, shadow_bg: &wgpu::BindGroup, with_prepass: bool) -> wgpu::SurfaceTexture {
+        let RenderContext {
+            gpu,
+            scene_uniform,
+            gpu_scene: scene,
+            material_atlas: atlas,
+            ..
+        } = self.render_ctx.as_ref();
+
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

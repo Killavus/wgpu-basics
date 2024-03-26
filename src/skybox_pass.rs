@@ -1,13 +1,14 @@
+use std::sync::Arc;
+
 use crate::{
-    gpu::Gpu,
     mesh::{Mesh, MeshBuilder},
-    scene_uniform::SceneUniform,
-    shader_compiler::ShaderCompiler,
+    render_context::RenderContext,
     shapes::Cube,
 };
 use anyhow::Result;
 
-pub struct SkyboxPass {
+pub struct SkyboxPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     bg: wgpu::BindGroup,
     rgba8_pipeline: wgpu::RenderPipeline,
     rgba16_pipeline: wgpu::RenderPipeline,
@@ -15,13 +16,15 @@ pub struct SkyboxPass {
     ibuf: wgpu::Buffer,
 }
 
-impl SkyboxPass {
-    pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
-        scene_uniform: &SceneUniform,
-        skybox_tex: wgpu::Texture,
-    ) -> Result<Self> {
+impl<'window> SkyboxPass<'window> {
+    pub fn new(render_ctx: Arc<RenderContext<'window>>, skybox_tex: wgpu::Texture) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            scene_uniform,
+            ..
+        } = render_ctx.as_ref();
+
         let cube_mesh = MeshBuilder::new().with_geometry(Cube::geometry()).build()?;
         let mut cube_vbuf = vec![];
         let mut cube_index = vec![];
@@ -180,6 +183,7 @@ impl SkyboxPass {
             });
 
         Ok(Self {
+            render_ctx,
             bg,
             rgba8_pipeline,
             rgba16_pipeline,
@@ -188,13 +192,11 @@ impl SkyboxPass {
         })
     }
 
-    pub fn render(
-        &self,
-        gpu: &Gpu,
-        scene_uniform: &SceneUniform,
-        output_tv: wgpu::TextureView,
-        hdr: bool,
-    ) {
+    pub fn render(&self, output_tv: wgpu::TextureView, hdr: bool) {
+        let RenderContext {
+            gpu, scene_uniform, ..
+        } = self.render_ctx.as_ref();
+
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());

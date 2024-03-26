@@ -1,24 +1,28 @@
+use std::sync::Arc;
+
 use crate::{
-    gpu::Gpu,
     mesh::{Mesh, MeshVertexArrayType},
-    scene::{GpuScene, Instance},
-    scene_uniform::SceneUniform,
-    shader_compiler::ShaderCompiler,
+    render_context::RenderContext,
+    scene::Instance,
 };
 use anyhow::Result;
 
-pub struct DepthPrepass {
+pub struct DepthPrepass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     pn_pipeline: wgpu::RenderPipeline,
     pnuv_pipeline: wgpu::RenderPipeline,
     pntbuv_pipeline: wgpu::RenderPipeline,
 }
 
-impl DepthPrepass {
-    pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
-        scene_uniform: &SceneUniform,
-    ) -> Result<Self> {
+impl<'window> DepthPrepass<'window> {
+    pub fn new(render_ctx: Arc<RenderContext<'window>>) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            scene_uniform,
+            ..
+        } = render_ctx.as_ref();
+
         let module =
             shader_compiler.compilation_unit("./shaders/forward/cascaded_shadow_map.wgsl")?;
         let (shader, pnuv_shader, pntbuv_shader) = gpu.shader_per_vertex_type(&module)?;
@@ -125,13 +129,21 @@ impl DepthPrepass {
             });
 
         Ok(Self {
+            render_ctx,
             pn_pipeline,
             pnuv_pipeline,
             pntbuv_pipeline,
         })
     }
 
-    pub fn render(&self, gpu: &Gpu, scene_uniform: &SceneUniform, scene: &GpuScene) {
+    pub fn render(&self) {
+        let RenderContext {
+            gpu,
+            gpu_scene: scene,
+            scene_uniform,
+            ..
+        } = self.render_ctx.as_ref();
+
         let depth_view = gpu.depth_texture_view();
         let mut encoder = gpu
             .device

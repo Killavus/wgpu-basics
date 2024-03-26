@@ -4,7 +4,7 @@ use crate::{
     loader::{ObjLoader, ObjLoaderSettings},
     material::{MaterialAtlas, SpecularTexture},
     mesh::MeshBuilder,
-    phong_light::PhongLightScene,
+    light_scene::LightScene,
     projection::{wgpu_projection, GpuProjection},
     scene::{Instance, Scene, SceneModelBuilder, SceneObjectId},
     shapes::{Cube, Plane, UVSphere},
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 type TestScene = (
     Scene,
     MaterialAtlas,
-    PhongLightScene,
+    LightScene,
     GpuCamera,
     GpuProjection,
     na::Matrix4<f32>,
@@ -101,7 +101,7 @@ pub fn blinn_phong_scene(gpu: &Gpu) -> Result<TestScene> {
     let projection: GpuProjection = GpuProjection::new(projection_mat, &gpu.device)?;
     let projection_mat = wgpu_projection(projection_mat);
 
-    let mut lights = PhongLightScene::default();
+    let mut lights = LightScene::default();
 
     lights.new_point(
         na::Vector3::new(0.0, 3.0, 0.0),
@@ -328,7 +328,7 @@ pub fn teapot_scene(gpu: &Gpu) -> Result<TestScene> {
         &gpu.device,
     )?;
 
-    let mut lights = PhongLightScene::default();
+    let mut lights = LightScene::default();
 
     lights.new_directional(
         na::Vector3::new(-0.5, -0.5, -0.5).normalize(),
@@ -411,7 +411,7 @@ pub fn normal_mapping_test(gpu: &Gpu) -> Result<TestScene> {
         yellow,
     );
 
-    let mut lights = PhongLightScene::default();
+    let mut lights = LightScene::default();
     lights.new_point(
         na::Vector3::new(0.5, 1.0, 0.3),
         na::Vector3::new(0.1, 0.1, 0.1),

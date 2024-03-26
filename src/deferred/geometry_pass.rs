@@ -1,10 +1,13 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 
 use crate::{
     gpu::Gpu,
     material::MaterialAtlas,
     mesh::{Mesh, MeshVertexArrayType},
-    scene::{GpuScene, Instance},
+    render_context::RenderContext,
+    scene::Instance,
     scene_uniform::SceneUniform,
     shader_compiler::ShaderCompiler,
 };
@@ -21,7 +24,8 @@ struct Pipelines {
     textured_normal: wgpu::RenderPipeline,
 }
 
-pub struct GeometryPass {
+pub struct GeometryPass<'window> {
+    render_ctx: Arc<RenderContext<'window>>,
     g_buffers: GBuffers,
     pipelines: Pipelines,
 }
@@ -94,7 +98,7 @@ impl GBuffers {
 impl Pipelines {
     pub fn new(
         gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
+        shader_compiler: &ShaderCompiler,
         material_atlas: &MaterialAtlas,
         scene_uniform: &SceneUniform,
     ) -> Result<Self> {
@@ -257,29 +261,35 @@ impl Pipelines {
     }
 }
 
-impl GeometryPass {
-    pub fn new(
-        gpu: &Gpu,
-        shader_compiler: &mut ShaderCompiler,
-        material_atlas: &MaterialAtlas,
-        scene_uniform: &SceneUniform,
-    ) -> Result<Self> {
+impl<'window> GeometryPass<'window> {
+    pub fn new(render_ctx: Arc<RenderContext<'window>>) -> Result<Self> {
+        let RenderContext {
+            gpu,
+            shader_compiler,
+            scene_uniform,
+            material_atlas,
+            ..
+        } = render_ctx.as_ref();
+
         let g_buffers = GBuffers::new(gpu);
         let pipelines = Pipelines::new(gpu, shader_compiler, material_atlas, scene_uniform)?;
 
         Ok(Self {
+            render_ctx,
             g_buffers,
             pipelines,
         })
     }
 
-    pub fn render(
-        &self,
-        gpu: &Gpu,
-        atlas: &MaterialAtlas,
-        scene_uniform: &SceneUniform,
-        scene: &GpuScene,
-    ) -> &GBuffers {
+    pub fn render(&self) -> &GBuffers {
+        let RenderContext {
+            gpu,
+            gpu_scene: scene,
+            scene_uniform,
+            material_atlas: atlas,
+            ..
+        } = self.render_ctx.as_ref();
+
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
